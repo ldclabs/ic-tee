@@ -1,0 +1,20 @@
+[package]
+name = "ic_tee_nitro_attestation"
+description = "A Rust library to process Nitro enclaves attestation"
+repository = "https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_nitro_attestation"
+publish = true
+version.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+
+[dependencies]
+lazy_static = { workspace = true }
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+ciborium = { workspace = true }
+p384 = { workspace = true }
+sha2 = { workspace = true }
+coset = { workspace = true }
+x509-parser = { workspace = true, features = ["verify"] }

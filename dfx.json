@@ -1,0 +1,21 @@
+{
+  "canisters": {
+    "ic_tee_identity": {
+      "candid": "src/ic_tee_identity/ic_tee_identity.did",
+      "declarations": {
+        "node_compatibility": true
+      },
+      "package": "ic_tee_identity",
+      "optimize": "cycles",
+      "type": "rust"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}

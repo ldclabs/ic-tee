@@ -1,0 +1,33 @@
+[workspace]
+members = ["src/ic_tee_identity", "src/ic_tee_nitro_attestation"]
+resolver = "2"
+
+[profile.release]
+debug = false
+lto = true
+strip = true
+opt-level = 's'
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/ldclabs/ic-tee"
+keywords = ["tee", "canister", "icp", "nitro"]
+categories = ["web-programming"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+candid = "0.10"
+ciborium = "0.2"
+lazy_static = "1.5"
+serde = "1"
+serde_bytes = "0.11"
+p384 = { version = "0.13" }
+sha2 = "0.10"
+ic-cdk = "0.16"
+ic-stable-structures = "0.6"
+ic-canister-sig-creation = "1.1"
+ic-certification = "2.6"
+getrandom = { version = "0.2", features = ["custom"] }
+coset = "0.3.8"
+x509-parser = { version = "0.16.0" }
