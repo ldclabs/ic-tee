@@ -1,5 +1,10 @@
 [workspace]
-members = ["src/ic_tee_identity", "src/ic_tee_nitro_attestation"]
+members = [
+  "src/ic_tee_agent",
+  "src/ic_tee_identity",
+  "src/ic_tee_nitro_attestation",
+  "src/ic_tee_sdk",
+]
 resolver = "2"
 
 [profile.release]
@@ -24,10 +29,14 @@ serde = "1"
 serde_bytes = "0.11"
 p384 = { version = "0.13" }
 sha2 = "0.10"
+sha3 = "0.10"
 ic-cdk = "0.16"
 ic-stable-structures = "0.6"
 ic-canister-sig-creation = "1.1"
 ic-certification = "2.6"
+ic-agent = "0.39"
 getrandom = { version = "0.2", features = ["custom"] }
 coset = "0.3.8"
 x509-parser = { version = "0.16.0" }
+ed25519-consensus = "2.1"
+rand = "0.8"

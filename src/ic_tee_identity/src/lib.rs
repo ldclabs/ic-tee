@@ -1,10 +1,10 @@
 use candid::Principal;
+use ic_tee_sdk::{SignInResponse, SignedDelegation};
 use serde_bytes::ByteBuf;
 
 mod api;
 mod api_init;
 mod store;
-mod types;
 
 use api_init::ChainArgs;
 
