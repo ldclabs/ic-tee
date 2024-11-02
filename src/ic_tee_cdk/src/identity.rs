@@ -40,7 +40,7 @@ pub struct SignInParams {
 
 pub fn canister_user_key(
     canister: Principal,
-    kind: &str,
+    kind: &str, // should be "Nitro"
     seed: &[u8],
     sub_seed: Option<&[u8]>,
 ) -> Vec<u8> {

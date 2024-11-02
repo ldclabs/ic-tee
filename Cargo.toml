@@ -1,9 +1,9 @@
 [workspace]
 members = [
   "src/ic_tee_agent",
+  "src/ic_tee_cdk",
   "src/ic_tee_identity",
   "src/ic_tee_nitro_attestation",
-  "src/ic_tee_sdk",
 ]
 resolver = "2"
 

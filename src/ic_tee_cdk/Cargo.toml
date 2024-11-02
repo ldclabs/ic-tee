@@ -1,7 +1,7 @@
 [package]
-name = "ic_tee_sdk"
-description = "A Rust library to make Trusted Execution Environments (TEEs) work with the Internet Computer"
-repository = "https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_sdk"
+name = "ic_tee_cdk"
+description = "A Canister Development Kit to make Trusted Execution Environments (TEEs) work with the Internet Computer"
+repository = "https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_cdk"
 publish = true
 version.workspace = true
 edition.workspace = true
