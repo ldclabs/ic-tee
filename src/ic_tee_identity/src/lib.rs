@@ -1,5 +1,5 @@
 use candid::Principal;
-use ic_tee_sdk::{SignInResponse, SignedDelegation};
+use ic_tee_cdk::{SignInResponse, SignedDelegation};
 use serde_bytes::ByteBuf;
 
 mod api;

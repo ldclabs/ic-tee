@@ -17,6 +17,11 @@ pub struct SignedDelegation {
     pub signature: ByteBuf,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct SignInParams {
+    pub id_scope: String, // should be "image" or "enclave"
+}
+
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub struct SignInResponse {
     /// The session expiration time in nanoseconds since the UNIX epoch. This is the time at which
@@ -24,18 +29,6 @@ pub struct SignInResponse {
     pub expiration: u64,
     /// The user canister public key. This key is used to derive the user principal.
     pub user_key: ByteBuf,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct AttestationUserRequest<T> {
-    pub method: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<T>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct SignInParams {
-    pub id_scope: String, // should be "image" or "enclave"
 }
 
 pub fn canister_user_key(

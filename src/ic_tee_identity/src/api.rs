@@ -1,11 +1,11 @@
 use candid::Principal;
 use ciborium::from_reader;
 use ic_canister_sig_creation::delegation_signature_msg;
-use ic_tee_nitro_attestation::parse_and_verify;
-use ic_tee_sdk::{
+use ic_tee_cdk::{
     canister_user_key, AttestationUserRequest, Delegation, SignInParams, SignInResponse,
     SignedDelegation,
 };
+use ic_tee_nitro_attestation::parse_and_verify;
 use serde_bytes::ByteBuf;
 
 use crate::store;

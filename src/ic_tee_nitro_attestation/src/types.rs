@@ -13,8 +13,7 @@ pub enum Digest {
     SHA512,
 }
 
-/// An attestation response.  This is also used for sealing
-/// data.
+/// An attestation response.  This is also used for sealing data.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Attestation {
     /// Issuing NSM ID
@@ -43,5 +42,12 @@ pub struct Attestation {
 
     /// An optional cryptographic nonce provided by the attestation consumer as a proof of
     /// authenticity.
+    pub nonce: Option<ByteBuf>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct AttestationRequest {
+    pub public_key: Option<ByteBuf>,
+    pub user_data: Option<ByteBuf>,
     pub nonce: Option<ByteBuf>,
 }
