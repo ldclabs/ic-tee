@@ -1,13 +1,14 @@
-use axum_server::tls_rustls::RustlsConfig;
+use anyhow::Result;
 use candid::{pretty::candid::value::pp_value, CandidType, IDLValue, Principal};
 use clap::{Parser, Subcommand};
+use ed25519::pkcs8::{DecodePrivateKey, KeypairBytes};
 use ed25519_consensus::SigningKey;
 use ic_agent::{
     identity::{AnonymousIdentity, BasicIdentity},
     Identity,
 };
 use ic_cose_types::{
-    cose::{cose_aes256_key, encrypt0::cose_encrypt0, format_error, CborSerializable},
+    cose::{cose_aes256_key, encrypt0::cose_encrypt0, CborSerializable},
     to_cbor_bytes,
     types::{
         setting::{CreateSettingInput, CreateSettingOutput, SettingInfo},
@@ -25,7 +26,7 @@ use pkcs8::{
     der::{
         asn1::{ObjectIdentifier, OctetString},
         pem::LineEnding,
-        Decode, Encode, EncodePem,
+        Encode, EncodePem,
     },
     AlgorithmIdentifierRef, PrivateKeyInfo,
 };
@@ -33,6 +34,7 @@ use rand::thread_rng;
 use serde_bytes::ByteBuf;
 use std::path::Path;
 
+static LOCAL_HOST: &str = "http://127.0.0.1:4943";
 static IC_HOST: &str = "https://icp-api.io";
 static SETTING_KEY_ID: &str = "id_ed25519";
 static SETTING_KEY_TLS: &str = "tls";
@@ -47,6 +49,9 @@ pub struct Cli {
 
     #[arg(short, long, default_value = "")]
     canister: String,
+
+    #[arg(long)]
+    ic: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -97,7 +102,7 @@ pub enum Commands {
         /// The setting subject
         #[arg(long)]
         user_owned: bool,
-        #[arg(long)]
+        #[arg(long, default_value = "0")]
         version: u32,
     },
     /// save a identity to the COSE canister
@@ -128,18 +133,19 @@ pub enum Commands {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), String> {
+async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let identity = load_identity(&cli.identity).map_err(format_error)?;
+    let identity = load_identity(&cli.identity)?;
+    let host = if cli.ic { IC_HOST } else { LOCAL_HOST };
 
     match &cli.command {
         Some(Commands::IdentityNew { path }) => {
             let signing_key = SigningKey::new(thread_rng());
-            let private_key = OctetString::new(signing_key.as_bytes()).map_err(format_error)?;
-            let private_key = private_key.to_der().map_err(format_error)?;
+            let private_key = OctetString::new(signing_key.as_bytes())?;
+            let private_key = private_key.to_der()?;
             let id = BasicIdentity::from_signing_key(signing_key);
-            let principal = id.sender()?;
-            let oid = ObjectIdentifier::new("1.3.101.112").map_err(format_error)?;
+            let principal = id.sender().map_err(anyhow::Error::msg)?;
+            let oid = ObjectIdentifier::new("1.3.101.112").map_err(anyhow::Error::msg)?;
 
             let pk = PrivateKeyInfo {
                 algorithm: AlgorithmIdentifierRef {
@@ -149,7 +155,7 @@ async fn main() -> Result<(), String> {
                 private_key: &private_key,
                 public_key: None,
             };
-            let pem = pk.to_pem(LineEnding::LF).map_err(format_error)?;
+            let pem = pk.to_pem(LineEnding::LF)?;
 
             let file = if path.is_empty() {
                 format!("{}.pem", principal)
@@ -158,10 +164,10 @@ async fn main() -> Result<(), String> {
             };
             let file = Path::new(&file).to_path_buf();
             if file.try_exists().unwrap_or_default() {
-                Err(format!("file already exists: {:?}", file))?;
+                Err(anyhow::anyhow!("file already exists: {:?}", file))?;
             }
 
-            std::fs::write(&file, pem.as_bytes()).map_err(format_error)?;
+            std::fs::write(&file, pem.as_bytes())?;
             println!("principal: {}", principal);
             println!("file: {}", file.to_str().unwrap());
         }
@@ -174,27 +180,28 @@ async fn main() -> Result<(), String> {
             let seed = decode_hex(seed)?;
             let sub_seed = sub_seed.as_ref().map(|s| decode_hex(s)).transpose()?;
             let canister = Principal::from_text(&cli.canister)
-                .map_err(|err| format!("invalid canister: {:?}", err))?;
+                .map_err(|err| anyhow::anyhow!("invalid canister: {:?}", err))?;
             let user_key = canister_user_key(canister, kind, &seed, sub_seed.as_deref());
             let principal = Principal::self_authenticating(&user_key);
 
             println!("principal: {}", principal);
         }
 
-        Some(Commands::TeeVerify { doc, kind: _ }) => {
+        Some(Commands::TeeVerify { doc, kind }) => {
             let doc = decode_hex(doc)?;
             let mut error: Option<String> = None;
             let doc = match parse_and_verify(&doc) {
                 Ok(doc) => doc,
                 Err(err) => {
                     error = Some(err);
-                    let (_, doc) = parse(&doc)?;
+                    let (_, doc) = parse(&doc).map_err(anyhow::Error::msg)?;
                     doc
                 }
             };
             pretty_println(&doc)?;
-            if let Some(err) = error {
-                println!("Verify failed: {}", err);
+            match error {
+                Some(err) => println!("{} attestation verify failed: {}", kind, err),
+                None => println!("{} attestation verify success", kind),
             }
         }
 
@@ -206,35 +213,32 @@ async fn main() -> Result<(), String> {
             version,
         }) => {
             let canister = Principal::from_text(&cli.canister)
-                .map_err(|err| format!("invalid COSE canister: {:?}", err))?;
-            let agent = build_agent(identity);
+                .map_err(|err| anyhow::anyhow!("invalid COSE canister: {:?}", err))?;
+            let agent = build_agent(host, identity).await;
             let path = SettingPath {
                 ns: ns.clone(),
                 user_owned: *user_owned,
-                subject: subject
-                    .as_ref()
-                    .map(|s| Principal::from_text(s).map_err(format_error))
-                    .transpose()?,
+                subject: subject.as_ref().map(Principal::from_text).transpose()?,
                 key: ByteBuf::from(key.as_bytes()),
                 version: *version,
             };
 
             let res: Result<SettingInfo, String> =
-                query_call(&agent, &canister, "setting_get", (path,)).await?;
-            let res = res?;
+                query_call(&agent, &canister, "setting_get", (path,))
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+            let res = res.map_err(anyhow::Error::msg)?;
             pretty_println(&res)?;
         }
 
         Some(Commands::SettingSaveIdentity { ns, path }) => {
             let canister = Principal::from_text(&cli.canister)
-                .map_err(|err| format!("invalid COSE canister: {:?}", err))?;
-            let content = std::fs::read_to_string(path).map_err(format_error)?;
-            let id = BasicIdentity::from_pem(content.as_bytes()).map_err(format_error)?;
-            let principal = id.sender()?;
-            let pki = PrivateKeyInfo::try_from(content.as_bytes()).map_err(format_error)?;
-            let decoded_key = OctetString::from_der(pki.private_key).map_err(format_error)?;
-            let private_key = SigningKey::try_from(decoded_key.as_bytes()).map_err(format_error)?;
-            let agent = build_agent(identity);
+                .map_err(|err| anyhow::anyhow!("invalid COSE canister: {:?}", err))?;
+            let content = std::fs::read_to_string(path)?;
+            let id = BasicIdentity::from_pem(content.as_bytes())?;
+            let principal = id.sender().map_err(anyhow::Error::msg)?;
+            let keypair = KeypairBytes::from_pkcs8_pem(&content)?;
+            let agent = build_agent(host, identity).await;
             let path = SettingPath {
                 ns: ns.clone(),
                 user_owned: false,
@@ -242,12 +246,14 @@ async fn main() -> Result<(), String> {
                 key: ByteBuf::from(SETTING_KEY_ID.as_bytes()),
                 version: 0,
             };
-            let secret = get_cose_secret(&agent, &canister, path.clone()).await?;
-            let key = cose_aes256_key(private_key.to_bytes(), principal.as_slice().to_vec());
-            let key = key.to_vec().map_err(format_error)?;
+            let secret = get_cose_secret(&agent, &canister, path.clone())
+                .await
+                .map_err(anyhow::Error::msg)?;
+            let key = cose_aes256_key(keypair.secret_key, principal.as_slice().to_vec());
+            let key = key.to_vec().unwrap();
             let nonce: [u8; 12] = rand_bytes();
-            let payload = cose_encrypt0(&key, &secret, &[], nonce, None)?;
-
+            let payload =
+                cose_encrypt0(&key, &secret, &[], nonce, None).map_err(anyhow::Error::msg)?;
             let res: Result<CreateSettingOutput, String> = update_call(
                 &agent,
                 &canister,
@@ -263,8 +269,9 @@ async fn main() -> Result<(), String> {
                     },
                 ),
             )
-            .await?;
-            let res = res?;
+            .await
+            .map_err(anyhow::Error::msg)?;
+            let res = res.map_err(anyhow::Error::msg)?;
             pretty_println(&res)?;
         }
 
@@ -275,23 +282,25 @@ async fn main() -> Result<(), String> {
             cert_file,
         }) => {
             let canister = Principal::from_text(&cli.canister)
-                .map_err(|err| format!("invalid COSE canister: {:?}", err))?;
+                .map_err(|err| anyhow::anyhow!("invalid COSE canister: {:?}", err))?;
             let subject = Principal::from_text(subject)
-                .map_err(|err| format!("invalid subject: {:?}", err))?;
-            let key_data = std::fs::read_to_string(key_file).map_err(format_error)?;
-            let cert_data = std::fs::read_to_string(cert_file).map_err(format_error)?;
+                .map_err(|err| anyhow::anyhow!("invalid subject: {:?}", err))?;
+            let key_data = std::fs::read_to_string(key_file)?;
+            let cert_data = std::fs::read_to_string(cert_file)?;
             let tls = TLSPayload {
                 crt: cert_data.as_bytes().to_vec().into(),
                 key: key_data.as_bytes().to_vec().into(),
             };
-            let _ = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
-                .await
-                .map_err(|err| format!("read tls file failed: {:?}", err))?;
-            let agent = build_agent(identity);
+            // call CryptoProvider::install_default() before this point
+            // let _ = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
+            //     .await
+            //     .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
+            let agent = build_agent(host, identity).await;
             let dek: [u8; 32] = rand_bytes();
             let nonce: [u8; 12] = rand_bytes();
             let payload = to_cbor_bytes(&tls);
-            let payload = cose_encrypt0(&payload, &dek, &[], nonce, None)?;
+            let payload =
+                cose_encrypt0(&payload, &dek, &[], nonce, None).map_err(anyhow::Error::msg)?;
 
             let secret = get_cose_secret(
                 &agent,
@@ -304,11 +313,12 @@ async fn main() -> Result<(), String> {
                     version: 0,
                 },
             )
-            .await?;
+            .await
+            .map_err(anyhow::Error::msg)?;
             let dek = cose_aes256_key(dek, COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec());
-            let dek = dek.to_vec().map_err(format_error)?;
+            let dek = dek.to_vec().unwrap();
             let nonce: [u8; 12] = rand_bytes();
-            let dek = cose_encrypt0(&dek, &secret, &[], nonce, None)?;
+            let dek = cose_encrypt0(&dek, &secret, &[], nonce, None).map_err(anyhow::Error::msg)?;
             let res: Result<CreateSettingOutput, String> = update_call(
                 &agent,
                 &canister,
@@ -330,13 +340,14 @@ async fn main() -> Result<(), String> {
                     },
                 ),
             )
-            .await?;
-            let res = res?;
+            .await
+            .map_err(anyhow::Error::msg)?;
+            let res = res.map_err(anyhow::Error::msg)?;
             pretty_println(&res)?;
         }
 
         None => {
-            let principal = identity.sender()?;
+            let principal = identity.sender().unwrap();
             println!("principal: {}", principal);
         }
     }
@@ -344,7 +355,7 @@ async fn main() -> Result<(), String> {
     Ok(())
 }
 
-fn load_identity(path: &str) -> anyhow::Result<Box<dyn Identity>> {
+fn load_identity(path: &str) -> Result<Box<dyn Identity>> {
     if path == "Anonymous" {
         return Ok(Box::new(AnonymousIdentity));
     }
@@ -356,26 +367,30 @@ fn load_identity(path: &str) -> anyhow::Result<Box<dyn Identity>> {
     }
 }
 
-fn build_agent(identity: Box<dyn Identity>) -> ic_agent::Agent {
-    ic_agent::Agent::builder()
-        .with_url(IC_HOST)
+async fn build_agent(host: &str, identity: Box<dyn Identity>) -> ic_agent::Agent {
+    let agent = ic_agent::Agent::builder()
+        .with_url(host)
         .with_identity(identity)
         .with_verify_query_signatures(true)
         .build()
-        .expect("failed to build agent")
+        .expect("failed to build agent");
+    if host.starts_with("http://") {
+        agent.fetch_root_key().await.expect("fetch root key failed");
+    }
+    agent
 }
 
-fn pretty_println<T>(data: &T) -> Result<(), String>
+fn pretty_println<T>(data: &T) -> Result<()>
 where
     T: CandidType,
 {
-    let val = IDLValue::try_from_candid_type(data).map_err(format_error)?;
+    let val = IDLValue::try_from_candid_type(data)?;
     let doc = pp_value(7, &val);
     println!("{}", doc.pretty(120));
     Ok(())
 }
 
-fn decode_hex(s: &str) -> Result<Vec<u8>, String> {
+fn decode_hex(s: &str) -> Result<Vec<u8>> {
     let s = s.replace("\\", "");
-    const_hex::decode(s.strip_prefix("0x").unwrap_or(&s)).map_err(format_error)
+    const_hex::decode(s.strip_prefix("0x").unwrap_or(&s)).map_err(anyhow::Error::msg)
 }

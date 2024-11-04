@@ -161,7 +161,11 @@ pub async fn proxy(State(app): State<AppState>, mut req: Request) -> impl IntoRe
     let port = if let Some(port) = app.upstream_port {
         port
     } else {
-        return StatusCode::NOT_FOUND.into_response();
+        return ContentType::Text::<()>(
+            "The resource could not be found.\nic_tee_nitro_gateway".to_string(),
+            Some(StatusCode::NOT_FOUND),
+        )
+        .into_response();
     };
 
     let path = req.uri().path();

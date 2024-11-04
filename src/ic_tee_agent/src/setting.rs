@@ -40,8 +40,9 @@ pub async fn get_cose_secret(
             },
         ),
     )
-    .await;
+    .await?;
     let res = res?;
+
     let (shared_secret, _) = ecdh_x25519(secret.to_bytes(), *res.public_key);
     let add = subject.as_slice();
     let kek = cose_decrypt0(&res.payload, &shared_secret.to_bytes(), add)?;

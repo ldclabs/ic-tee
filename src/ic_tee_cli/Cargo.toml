@@ -11,10 +11,8 @@ license.workspace = true
 
 [dependencies]
 candid = { workspace = true, features = ["value", "printer"] }
-axum-server = { workspace = true }
 serde_bytes = { workspace = true }
 tokio = { workspace = true }
-sha3 = { workspace = true }
 const-hex = { workspace = true }
 ic-agent = { workspace = true }
 ed25519-consensus = { workspace = true }
@@ -22,8 +20,8 @@ ic_cose_types = { workspace = true }
 rand = { workspace = true }
 anyhow = "1"
 clap = { version = "=4.5", features = ["derive"] }
-pkcs8 = "0.10"
-chrono = { version = "0.4", features = ["serde"] }
+pkcs8 = { version = "0.10", features = ["pem"] }
+ed25519 = { version = "2.2", features = ["pem", "pkcs8"] }
 ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.1" }
 ic_tee_agent = { path = "../ic_tee_agent", version = "0.1" }
 ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.1" }
