@@ -4,19 +4,15 @@ use candid::{
 };
 use ic_agent::Agent;
 use ic_cose_types::{
-    cose::{
-        ecdh::ecdh_x25519, encrypt0::cose_decrypt0, format_error, get_cose_key_secret,
-        CborSerializable, CoseKey,
-    },
-    types::{setting::SettingInfo, ECDHInput, ECDHOutput, SettingPath},
+    cose::format_error,
+    types::{setting::SettingInfo, SettingPath},
 };
 use ic_tee_cdk::{SignInResponse, SignedDelegation};
 use serde_bytes::ByteBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use x25519_dalek::{PublicKey, StaticSecret};
 
-use crate::{rand_bytes, BasicIdentity, TEEIdentity};
+use crate::{setting::get_cose_secret, BasicIdentity, TEEIdentity};
 
 #[derive(Clone)]
 pub struct TEEAgent {
@@ -110,39 +106,8 @@ impl TEEAgent {
     }
 
     pub async fn get_cose_secret(&self, path: SettingPath) -> Result<[u8; 32], String> {
-        let nonce: [u8; 12] = rand_bytes();
-        let secret: [u8; 32] = rand_bytes();
-        let secret = StaticSecret::from(secret);
-        let public = PublicKey::from(&secret);
-
-        let subject = if let Some(subject) = path.subject {
-            subject
-        } else {
-            self.principal().await
-        };
-        let res: Result<ECDHOutput<ByteBuf>, String> = self
-            .update_call(
-                &self.configuration_canister,
-                "ecdh_cose_encrypted_key",
-                (
-                    path,
-                    ECDHInput {
-                        nonce: nonce.into(),
-                        public_key: public.to_bytes().into(),
-                    },
-                ),
-            )
-            .await;
-        let res = res?;
-        let (shared_secret, _) = ecdh_x25519(secret.to_bytes(), *res.public_key);
-        let add = subject.as_slice();
-        let kek = cose_decrypt0(&res.payload, &shared_secret.to_bytes(), add)?;
-        let key =
-            CoseKey::from_slice(&kek).map_err(|err| format!("invalid COSE key: {:?}", err))?;
-        let secret = get_cose_key_secret(key)?;
-        secret.try_into().map_err(|val: Vec<u8>| {
-            format!("invalid COSE secret, expected 32 bytes, got {}", val.len())
-        })
+        let agent = self.agent.read().await;
+        get_cose_secret(&agent, &self.configuration_canister, path).await
     }
 
     pub async fn get_cose_setting(&self, path: SettingPath) -> Result<SettingInfo, String> {
@@ -162,18 +127,8 @@ impl TEEAgent {
         In: ArgumentEncoder + Send,
         Out: CandidType + for<'a> candid::Deserialize<'a>,
     {
-        let input = encode_args(args).map_err(format_error)?;
-        let res = self
-            .agent
-            .read()
-            .await
-            .update(canister_id, method_name)
-            .with_arg(input)
-            .call_and_wait()
-            .await
-            .map_err(format_error)?;
-        let output = Decode!(res.as_slice(), Out).map_err(format_error)?;
-        Ok(output)
+        let agent = self.agent.read().await;
+        update_call(&agent, canister_id, method_name, args).await
     }
 
     pub async fn query_call<In, Out>(
@@ -186,18 +141,8 @@ impl TEEAgent {
         In: ArgumentEncoder + Send,
         Out: CandidType + for<'a> candid::Deserialize<'a>,
     {
-        let input = encode_args(args).map_err(format_error)?;
-        let res = self
-            .agent
-            .read()
-            .await
-            .query(canister_id, method_name)
-            .with_arg(input)
-            .call()
-            .await
-            .map_err(format_error)?;
-        let output = Decode!(res.as_slice(), Out).map_err(format_error)?;
-        Ok(output)
+        let agent = self.agent.read().await;
+        query_call(&agent, canister_id, method_name, args).await
     }
 
     pub async fn update_call_raw(
@@ -231,4 +176,46 @@ impl TEEAgent {
             .await
             .map_err(format_error)
     }
+}
+
+pub async fn update_call<In, Out>(
+    agent: &Agent,
+    canister_id: &Principal,
+    method_name: &str,
+    args: In,
+) -> Result<Out, String>
+where
+    In: ArgumentEncoder + Send,
+    Out: CandidType + for<'a> candid::Deserialize<'a>,
+{
+    let input = encode_args(args).map_err(format_error)?;
+    let res = agent
+        .update(canister_id, method_name)
+        .with_arg(input)
+        .call_and_wait()
+        .await
+        .map_err(format_error)?;
+    let output = Decode!(res.as_slice(), Out).map_err(format_error)?;
+    Ok(output)
+}
+
+pub async fn query_call<In, Out>(
+    agent: &Agent,
+    canister_id: &Principal,
+    method_name: &str,
+    args: In,
+) -> Result<Out, String>
+where
+    In: ArgumentEncoder + Send,
+    Out: CandidType + for<'a> candid::Deserialize<'a>,
+{
+    let input = encode_args(args).map_err(format_error)?;
+    let res = agent
+        .query(canister_id, method_name)
+        .with_arg(input)
+        .call()
+        .await
+        .map_err(format_error)?;
+    let output = Decode!(res.as_slice(), Out).map_err(format_error)?;
+    Ok(output)
 }

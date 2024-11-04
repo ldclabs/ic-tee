@@ -57,7 +57,7 @@ impl Clone for TEEIdentity {
 impl TEEIdentity {
     pub fn new() -> Self {
         let signing_key = SigningKey::new(thread_rng());
-        let basic = BasicIdentity::from_signing_key(SigningKey::new(thread_rng()));
+        let basic = BasicIdentity::from_signing_key(signing_key.clone());
         Self {
             identity: InnerIdentity::Anonymous(AnonymousIdentity),
             signing_key,

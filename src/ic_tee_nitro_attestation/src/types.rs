@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
-
+use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
+use std::collections::BTreeMap;
 
-#[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq)]
+#[derive(CandidType, Debug, Serialize, Deserialize, Copy, Clone, PartialEq)]
 pub enum Digest {
     /// SHA256
     SHA256,
@@ -14,7 +14,7 @@ pub enum Digest {
 }
 
 /// An attestation response.  This is also used for sealing data.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Attestation {
     /// Issuing NSM ID
     pub module_id: String,
@@ -45,7 +45,7 @@ pub struct Attestation {
     pub nonce: Option<ByteBuf>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct AttestationRequest {
     pub public_key: Option<ByteBuf>,
     pub user_data: Option<ByteBuf>,
