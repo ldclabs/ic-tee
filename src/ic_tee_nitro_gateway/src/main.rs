@@ -3,7 +3,12 @@ use axum::{routing, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use candid::Principal;
 use clap::Parser;
-use ic_tee_agent::agent::TEEAgent;
+use ic_cose_types::types::SettingPath;
+use ic_tee_agent::{
+    agent::TEEAgent,
+    identity::identity_from,
+    setting::{decrypt_payload, decrypt_tls},
+};
 use ic_tee_cdk::{to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInformation};
 use ic_tee_nitro_attestation::{parse_and_verify, AttestationRequest};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
@@ -21,6 +26,9 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 static IC_HOST: &str = "https://icp-api.io";
 static TEE_KIND: &str = "Nitro"; // AWS Nitro Enclaves
+static SETTING_KEY_ID: &str = "id_ed25519";
+static SETTING_KEY_TLS: &str = "tls";
+static COSE_SECRET_PERMANENT_KEY: &str = "v1";
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -29,9 +37,9 @@ struct Cli {
     #[clap(long, value_parser)]
     authentication_canister: String,
 
-    /// refresh identity every N seconds, default is 24 hours - 10 minutes
+    /// default is 24 hours
     #[clap(long, value_parser)]
-    refresh_identity_secs: Option<u64>,
+    session_expires_in_ms: Option<u64>,
 
     // id_scope should be "image" or "enclave", default is "image"
     #[clap(long, value_parser)]
@@ -45,9 +53,12 @@ struct Cli {
     #[clap(long, value_parser)]
     configuration_namespace: String,
 
-    /// Bring Your Own Key (BYOK) to derive the KEK
     #[clap(long, value_parser)]
-    configuration_byok: Option<String>,
+    configuration_tls: String,
+
+    /// identity to upgrade
+    #[clap(long, value_parser)]
+    configuration_upgrade_identity: Option<String>,
 
     #[clap(long, value_parser)]
     upstream_port: Option<u16>,
@@ -67,6 +78,8 @@ async fn main() -> Result<()> {
     let tee_agent = TEEAgent::new(IC_HOST, authentication_canister, configuration_canister)
         .map_err(anyhow::Error::msg)?;
 
+    let namespace = cli.configuration_namespace;
+    let session_expires_in_ms = cli.session_expires_in_ms.unwrap_or(24 * 60 * 60 * 1000);
     let public_key = tee_agent.session_key().await;
     let id_scope = cli.id_scope.unwrap_or("image".to_string());
     let user_req = AttestationUserRequest {
@@ -86,6 +99,47 @@ async fn main() -> Result<()> {
         .sign_in(TEE_KIND.to_string(), doc.into())
         .await
         .map_err(anyhow::Error::msg)?;
+
+    let upgrade_identity =
+        if let Some(v) = cli.configuration_upgrade_identity {
+            Some(Principal::from_text(v).map_err(|err| {
+                anyhow::anyhow!("invalid configuration_upgrade_identity: {}", err)
+            })?)
+        } else {
+            None
+        };
+
+    // upgrade to a permanent identity
+    let upgrade_identity = if let Some(subject) = upgrade_identity {
+        let id_path = SettingPath {
+            ns: namespace.clone(),
+            user_owned: false,
+            subject: Some(subject),
+            key: SETTING_KEY_ID.as_bytes().to_vec().into(),
+            version: 0,
+        };
+        let secret = tee_agent
+            .get_cose_secret(id_path.clone())
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let setting = tee_agent
+            .get_cose_setting(id_path)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let ed25519_secret = decrypt_payload(setting, secret).map_err(anyhow::Error::msg)?;
+        let ed25519_secret: [u8; 32] = ed25519_secret.try_into().map_err(|val: Vec<u8>| {
+            anyhow::anyhow!("invalid secret, expected 32 bytes, got {}", val.len())
+        })?;
+        let id = identity_from(ed25519_secret);
+        tee_agent
+            .upgrade_identity_with(&id, session_expires_in_ms)
+            .await;
+        Some(id)
+    } else {
+        None
+    };
+
+    let principal = tee_agent.principal().await;
     let info = TEEAppInformation {
         name: APP_NAME.to_string(),
         version: APP_VERSION.to_string(),
@@ -94,7 +148,7 @@ async fn main() -> Result<()> {
         pcr1: attestation.pcrs.get(&1).cloned().unwrap(),
         pcr2: attestation.pcrs.get(&2).cloned().unwrap(),
         start_time_ms: unix_ms(),
-        principal: tee_agent.principal().await,
+        principal,
         authentication_canister,
         configuration_canister,
         registration_canister: None,
@@ -109,26 +163,36 @@ async fn main() -> Result<()> {
     let shutdown_future = shutdown_signal(handle.clone(), cancel_token.clone());
 
     // 24 hours - 10 minutes
-    let refresh_identity_secs = cli.refresh_identity_secs.unwrap_or(3600 * 24 - 60 * 10);
+    let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 10;
     let refresh_identity = async {
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
                     break;
                 }
-                _ = tokio::time::sleep(Duration::from_secs(refresh_identity_secs)) => {}
+                _ = tokio::time::sleep(Duration::from_millis(refresh_identity_ms)) => {}
             };
-            // ignore error
-            let _ = tee_agent
-                .sign_in_with(|public_key| {
-                    let doc = sign_attestation(AttestationRequest {
-                        public_key: Some(public_key.into()),
-                        user_data: Some(user_req.clone().into()),
-                        nonce: None,
-                    })?;
-                    Ok((TEE_KIND.to_string(), doc.into()))
-                })
-                .await;
+
+            match upgrade_identity {
+                Some(ref id) => {
+                    tee_agent
+                        .upgrade_identity_with(id, session_expires_in_ms)
+                        .await;
+                }
+                None => {
+                    // ignore error
+                    let _ = tee_agent
+                        .sign_in_with(|public_key| {
+                            let doc = sign_attestation(AttestationRequest {
+                                public_key: Some(public_key.into()),
+                                user_data: Some(user_req.clone().into()),
+                                nonce: None,
+                            })?;
+                            Ok((TEE_KIND.to_string(), doc.into()))
+                        })
+                        .await;
+                }
+            }
         }
         Result::<()>::Ok(())
     };
@@ -137,6 +201,8 @@ async fn main() -> Result<()> {
         let app = Router::new()
             .route("/information", routing::get(handler::get_information))
             .route("/attestation", routing::post(handler::post_attestation))
+            .route("/canister/query", routing::post(handler::query_canister))
+            .route("/canister/update", routing::post(handler::update_canister))
             .with_state(handler::AppState {
                 info: info.clone(),
                 http_client: http_client.clone(),
@@ -155,6 +221,28 @@ async fn main() -> Result<()> {
     };
 
     let public_server = async {
+        let secret = tee_agent
+            .get_cose_secret(SettingPath {
+                ns: namespace.clone(),
+                user_owned: false,
+                subject: Some(principal),
+                key: SETTING_KEY_TLS.as_bytes().to_vec().into(),
+                version: 0,
+            })
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let setting = tee_agent
+            .get_cose_setting(SettingPath {
+                ns: namespace.clone(),
+                user_owned: false,
+                subject: Some(principal),
+                key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
+                version: 0,
+            })
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let tls = decrypt_tls(setting, secret).map_err(anyhow::Error::msg)?;
+
         let app = Router::new()
             .route(
                 "/.well-known/information",
@@ -172,12 +260,9 @@ async fn main() -> Result<()> {
                 upstream_port: cli.upstream_port,
             });
         let addr: SocketAddr = "127.0.0.1:443".parse().map_err(anyhow::Error::new)?;
-        // TODO: load tls cert and key from configuration canister
-        let cert_file = std::env::var("TLS_CERT_FILE").unwrap_or_default();
-        let key_file = std::env::var("TLS_KEY_FILE").unwrap_or_default();
-        let config = RustlsConfig::from_pem_file(&cert_file, &key_file)
+        let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
             .await
-            .unwrap_or_else(|_| panic!("read tls file failed: {}, {}", cert_file, key_file));
+            .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
         log::warn!(target: "server", "{}@{} listening on {:?} with tls", APP_NAME, APP_VERSION,addr);
         axum_server::bind_rustls(addr, config)
             .handle(handle)

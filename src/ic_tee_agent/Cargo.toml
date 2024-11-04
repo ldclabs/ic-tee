@@ -12,6 +12,7 @@ license.workspace = true
 [dependencies]
 candid = { workspace = true }
 ed25519-consensus = { workspace = true }
+x25519-dalek = { workspace = true }
 ciborium = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -22,4 +23,5 @@ tokio = { workspace = true }
 axum = { workspace = true }
 bytes = { workspace = true }
 mime = { workspace = true }
+ic_cose_types = { workspace = true }
 ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.1" }

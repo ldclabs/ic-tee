@@ -68,3 +68,10 @@ pub struct TEEAttestationJSON {
     pub kind: String,
     pub document: String,
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CanisterRequest {
+    pub canister: Principal,
+    pub method: String,
+    pub params: ByteBuf,
+}

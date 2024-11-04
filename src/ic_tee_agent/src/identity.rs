@@ -1,14 +1,14 @@
 use candid::Principal;
 use ed25519_consensus::SigningKey;
 use ic_agent::{
-    identity::{
-        AnonymousIdentity, BasicIdentity, DelegatedIdentity, Delegation, Identity, SignedDelegation,
-    },
+    identity::{DelegatedIdentity, Delegation, SignedDelegation},
     {agent::EnvelopeContent, Signature},
 };
 use ic_tee_cdk::identity;
 use rand::thread_rng;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+pub use ic_agent::identity::{AnonymousIdentity, BasicIdentity, Identity};
 
 enum InnerIdentity {
     Anonymous(AnonymousIdentity),
@@ -35,7 +35,7 @@ impl Clone for TEEIdentity {
     fn clone(&self) -> Self {
         Self {
             identity: match &self.identity {
-                InnerIdentity::Anonymous(id) => InnerIdentity::Anonymous(id.clone()),
+                InnerIdentity::Anonymous(id) => InnerIdentity::Anonymous(*id),
                 InnerIdentity::Delegated(_) => {
                     InnerIdentity::Delegated(DelegatedIdentity::new_unchecked(
                         self.user_key.clone(),
@@ -48,7 +48,7 @@ impl Clone for TEEIdentity {
             delegation: self.delegation.clone(),
             user_key: self.user_key.clone(),
             session_key: self.session_key.clone(),
-            principal: self.principal.clone(),
+            principal: self.principal,
             expiration: self.expiration,
         }
     }
@@ -88,6 +88,32 @@ impl TEEIdentity {
 
     pub fn principal(&self) -> Principal {
         self.principal
+    }
+
+    pub fn upgrade_with(&mut self, identity: &BasicIdentity, expires_in_ms: u64) {
+        let expiration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .saturating_add(Duration::from_millis(expires_in_ms));
+        let delegation = Delegation {
+            pubkey: self.session_key.clone(),
+            expiration: expiration.as_nanos() as u64,
+            targets: None,
+        };
+        let signature = identity.sign_delegation(&delegation).unwrap();
+        self.principal = identity.sender().unwrap();
+        self.user_key = identity.public_key().unwrap();
+        self.expiration = delegation.expiration;
+        self.delegation = vec![SignedDelegation {
+            delegation,
+            signature: signature.signature.unwrap(),
+        }];
+        let id = DelegatedIdentity::new_unchecked(
+            self.user_key.clone(),
+            Box::new(BasicIdentity::from_signing_key(self.signing_key.clone())),
+            self.delegation.clone(),
+        );
+        self.identity = InnerIdentity::Delegated(id);
     }
 
     pub fn with_user_key(&mut self, user_key: Vec<u8>) {
@@ -159,4 +185,9 @@ impl Identity for TEEIdentity {
             InnerIdentity::Delegated(id) => id.delegation_chain(),
         }
     }
+}
+
+pub fn identity_from(secret: [u8; 32]) -> BasicIdentity {
+    let key = SigningKey::from(secret);
+    BasicIdentity::from_signing_key(key)
 }

@@ -51,10 +51,12 @@ ic-stable-structures = "0.6"
 ic-canister-sig-creation = "1.1"
 ic-certification = "2.6"
 ic-agent = "0.39"
+ic_cose_types = "0.3"
 getrandom = { version = "0.2", features = ["custom"] }
 coset = "0.3.8"
 x509-parser = { version = "0.16.0" }
 ed25519-consensus = "2.1"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
 rand = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"

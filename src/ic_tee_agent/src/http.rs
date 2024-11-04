@@ -1,6 +1,6 @@
 use axum::{
     async_trait,
-    body::{Body, Bytes},
+    body::Bytes,
     extract::{FromRequest, Request},
     http::{
         header::{self, HeaderMap, HeaderValue},

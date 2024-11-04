@@ -6,7 +6,9 @@ use axum::{
 };
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use ic_tee_agent::{agent::TEEAgent, http::ContentType};
-use ic_tee_cdk::{TEEAppInformation, TEEAppInformationJSON, TEEAttestation, TEEAttestationJSON};
+use ic_tee_cdk::{
+    CanisterRequest, TEEAppInformation, TEEAppInformationJSON, TEEAttestation, TEEAttestationJSON,
+};
 use ic_tee_nitro_attestation::AttestationRequest;
 use std::sync::Arc;
 
@@ -119,6 +121,38 @@ pub async fn post_attestation(
             Err(err) => ContentType::Text::<()>(err, Some(StatusCode::INTERNAL_SERVER_ERROR))
                 .into_response(),
         },
+        _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
+    }
+}
+
+pub async fn query_canister(
+    State(app): State<AppState>,
+    ct: ContentType<CanisterRequest>,
+) -> impl IntoResponse {
+    match ct {
+        ContentType::CBOR(req, _) => {
+            let res = app
+                .tee_agent
+                .query_call_raw(&req.canister, &req.method, req.params.to_vec())
+                .await;
+            ContentType::CBOR(res, None).into_response()
+        }
+        _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
+    }
+}
+
+pub async fn update_canister(
+    State(app): State<AppState>,
+    ct: ContentType<CanisterRequest>,
+) -> impl IntoResponse {
+    match ct {
+        ContentType::CBOR(req, _) => {
+            let res = app
+                .tee_agent
+                .update_call_raw(&req.canister, &req.method, req.params.to_vec())
+                .await;
+            ContentType::CBOR(res, None).into_response()
+        }
         _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
     }
 }
