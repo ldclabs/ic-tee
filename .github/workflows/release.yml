@@ -1,8 +1,9 @@
 name: Release
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+  # push:
+  #   tags:
+  #     - 'v*'
 jobs:
   test:
     runs-on: ubuntu-latest

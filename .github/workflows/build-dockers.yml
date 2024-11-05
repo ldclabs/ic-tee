@@ -1,0 +1,32 @@
+name: Dockers
+on:
+  workflow_dispatch:
+  # push:
+  #   tags:
+  #     - 'v*'
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ldclabs/ic_tee_nitro_gateway
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+    - name: Build the Docker image
+      run: |
+        docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+        docker buildx create --use
+        docker login --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} ${{ env.REGISTRY }}
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+        LATEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        TAGS="-t ${IMAGE_TAG} -t ${LATEST_TAG}"
+        docker buildx build --platform='linux/amd64,linux/arm64' $TAGS --push .
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}_enclave_arm64:${{ github.ref_name }}"
+        LATEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}_enclave_arm64:latest"
+        TAGS="-t ${IMAGE_TAG} -t ${LATEST_TAG}"
+        docker build -f nitro_enclave/arm64.Dockerfile $TAGS --push .
+        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}_enclave_amd64:${{ github.ref_name }}"
+        LATEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}_enclave_amd64:latest"
+        TAGS="-t ${IMAGE_TAG} -t ${LATEST_TAG}"
+        docker build -f nitro_enclave/amd64.Dockerfile $TAGS --push .
