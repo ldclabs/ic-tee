@@ -75,6 +75,8 @@ async fn main() -> Result<()> {
     let tee_agent = TEEAgent::new(IC_HOST, authentication_canister, configuration_canister)
         .map_err(anyhow::Error::msg)?;
 
+    log::info!(target: "server", "init principal: {:?}", tee_agent.principal().await.to_text());
+
     let namespace = cli.configuration_namespace;
     let session_expires_in_ms = cli.session_expires_in_ms.unwrap_or(24 * 60 * 60 * 1000);
     let public_key = tee_agent.session_key().await;
@@ -90,12 +92,17 @@ async fn main() -> Result<()> {
         nonce: None,
     })
     .map_err(anyhow::Error::msg)?;
+    log::debug!(target: "server", "attestation doc: {:?}", const_hex::encode(&doc));
+
     let attestation = parse_and_verify(doc.as_slice()).map_err(anyhow::Error::msg)?;
+    log::info!(target: "server", "attestation: {:?}", attestation);
 
     tee_agent
         .sign_in(TEE_KIND.to_string(), doc.into())
         .await
         .map_err(anyhow::Error::msg)?;
+
+    log::info!(target: "server", "sign in principal: {:?}", tee_agent.principal().await.to_text());
 
     let upgrade_identity =
         if let Some(v) = cli.configuration_upgrade_identity {
@@ -131,6 +138,7 @@ async fn main() -> Result<()> {
         tee_agent
             .upgrade_identity_with(&id, session_expires_in_ms)
             .await;
+        log::info!(target: "server", "upgrade identity principal: {:?}", tee_agent.principal().await.to_text());
         Some(id)
     } else {
         None
@@ -150,6 +158,7 @@ async fn main() -> Result<()> {
         configuration_canister,
         registration_canister: None,
     };
+    log::info!(target: "server", "TEEAppInformation: {:?}", info);
 
     let http_client = Arc::new(handler::new_client());
     let tee_agent = Arc::new(tee_agent);
@@ -175,6 +184,7 @@ async fn main() -> Result<()> {
                     tee_agent
                         .upgrade_identity_with(id, session_expires_in_ms)
                         .await;
+                    log::info!(target: "server", "refresh_identity principal: {:?}", tee_agent.principal().await.to_text());
                 }
                 None => {
                     // ignore error
@@ -188,6 +198,7 @@ async fn main() -> Result<()> {
                             Ok((TEE_KIND.to_string(), doc.into()))
                         })
                         .await;
+                    log::info!(target: "server", "refresh_identity principal: {:?}", tee_agent.principal().await.to_text());
                 }
             }
         }
@@ -210,7 +221,7 @@ async fn main() -> Result<()> {
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
             .map_err(anyhow::Error::new)?;
-        log::warn!(target: "local server", "{}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
+        log::warn!(target: "local_server", "{}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_future)
             .await
