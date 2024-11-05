@@ -13,7 +13,7 @@ use ic_tee_cdk::{to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInfo
 use ic_tee_nitro_attestation::{parse_and_verify, AttestationRequest};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use structured_logger::{async_json::new_writer, get_env_level, unix_ms, Builder};
-use tokio::signal;
+use tokio::{net::TcpStream, signal};
 use tokio_util::sync::CancellationToken;
 
 mod attestation;
@@ -63,11 +63,30 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
-    Builder::with_level(&get_env_level().to_string())
-        .with_target_writer("*", new_writer(tokio::io::stdout()))
-        .init();
+    match TcpStream::connect("127.0.0.1:9999").await {
+        Ok(stream) => {
+            Builder::with_level(&get_env_level().to_string())
+                .with_target_writer("*", new_writer(stream))
+                .init();
+        }
+        Err(_) => {
+            Builder::with_level(&get_env_level().to_string())
+                .with_target_writer("*", new_writer(tokio::io::stdout()))
+                .init();
+        }
+    };
 
+    match serve().await {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            log::error!(target: "server", "server error: {:?}", err);
+            Err(err)
+        }
+    }
+}
+
+async fn serve() -> Result<()> {
+    let cli = Cli::parse();
     let authentication_canister = Principal::from_text(cli.authentication_canister)
         .map_err(|err| anyhow::anyhow!("invalid authentication_canister id: {}", err))?;
     let configuration_canister = Principal::from_text(cli.configuration_canister)

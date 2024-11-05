@@ -1688,6 +1688,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic_tee_logtail"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "candid",
+ "clap",
+ "const-hex",
+ "ed25519",
+ "ed25519-consensus",
+ "ic-agent",
+ "ic_cose_types",
+ "ic_tee_agent",
+ "ic_tee_cdk",
+ "ic_tee_nitro_attestation",
+ "pkcs8",
+ "rand",
+ "serde_bytes",
+ "tokio",
+]
+
+[[package]]
 name = "ic_tee_nitro_attestation"
 version = "0.1.1"
 dependencies = [
