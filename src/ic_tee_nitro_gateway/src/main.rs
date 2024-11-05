@@ -10,7 +10,7 @@ use ic_tee_agent::{
     setting::{decrypt_payload, decrypt_tls},
 };
 use ic_tee_cdk::{to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInformation};
-use ic_tee_nitro_attestation::{parse_and_verify, AttestationRequest};
+use ic_tee_nitro_attestation::{parse, parse_and_verify, AttestationRequest};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use structured_logger::{async_json::new_writer, get_env_level, unix_ms, Builder};
 use tokio::signal;
@@ -75,8 +75,6 @@ async fn main() -> Result<()> {
     let tee_agent = TEEAgent::new(IC_HOST, authentication_canister, configuration_canister)
         .map_err(anyhow::Error::msg)?;
 
-    log::info!(target: "server", "init principal: {:?}", tee_agent.principal().await.to_text());
-
     let namespace = cli.configuration_namespace;
     let session_expires_in_ms = cli.session_expires_in_ms.unwrap_or(24 * 60 * 60 * 1000);
     let public_key = tee_agent.session_key().await;
@@ -92,26 +90,23 @@ async fn main() -> Result<()> {
         nonce: None,
     })
     .map_err(anyhow::Error::msg)?;
-    log::debug!(target: "server", "attestation doc: {:?}", const_hex::encode(&doc));
 
-    let attestation = parse_and_verify(doc.as_slice()).map_err(anyhow::Error::msg)?;
-    log::info!(target: "server", "attestation: {:?}", attestation);
+    // let attestation = parse_and_verify(doc.as_slice()).map_err(anyhow::Error::msg)?;
+    let (_, attestation) = parse(doc.as_slice()).map_err(anyhow::Error::msg)?;
 
-    tee_agent
-        .sign_in(TEE_KIND.to_string(), doc.into())
-        .await
-        .map_err(anyhow::Error::msg)?;
+    // tee_agent
+    //     .sign_in(TEE_KIND.to_string(), doc.into())
+    //     .await
+    //     .map_err(anyhow::Error::msg)?;
 
-    log::info!(target: "server", "sign in principal: {:?}", tee_agent.principal().await.to_text());
-
-    let upgrade_identity =
-        if let Some(v) = cli.configuration_upgrade_identity {
-            Some(Principal::from_text(v).map_err(|err| {
-                anyhow::anyhow!("invalid configuration_upgrade_identity: {}", err)
-            })?)
-        } else {
-            None
-        };
+    let upgrade_identity = if let Some(v) = cli.configuration_upgrade_identity {
+        // Some(Principal::from_text(v).map_err(|err| {
+        //     anyhow::anyhow!("invalid configuration_upgrade_identity: {}", err)
+        // })?)
+        None
+    } else {
+        None
+    };
 
     // upgrade to a permanent identity
     let upgrade_identity = if let Some(subject) = upgrade_identity {
@@ -138,7 +133,6 @@ async fn main() -> Result<()> {
         tee_agent
             .upgrade_identity_with(&id, session_expires_in_ms)
             .await;
-        log::info!(target: "server", "upgrade identity principal: {:?}", tee_agent.principal().await.to_text());
         Some(id)
     } else {
         None
@@ -158,7 +152,6 @@ async fn main() -> Result<()> {
         configuration_canister,
         registration_canister: None,
     };
-    log::info!(target: "server", "TEEAppInformation: {:?}", info);
 
     let http_client = Arc::new(handler::new_client());
     let tee_agent = Arc::new(tee_agent);
@@ -171,6 +164,7 @@ async fn main() -> Result<()> {
     // 24 hours - 10 minutes
     let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 10;
     let refresh_identity = async {
+        return Result::<()>::Ok(());
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
@@ -184,7 +178,6 @@ async fn main() -> Result<()> {
                     tee_agent
                         .upgrade_identity_with(id, session_expires_in_ms)
                         .await;
-                    log::info!(target: "server", "refresh_identity principal: {:?}", tee_agent.principal().await.to_text());
                 }
                 None => {
                     // ignore error
@@ -198,7 +191,6 @@ async fn main() -> Result<()> {
                             Ok((TEE_KIND.to_string(), doc.into()))
                         })
                         .await;
-                    log::info!(target: "server", "refresh_identity principal: {:?}", tee_agent.principal().await.to_text());
                 }
             }
         }
@@ -208,7 +200,10 @@ async fn main() -> Result<()> {
     let local_server = async {
         let app = Router::new()
             .route("/information", routing::get(handler::get_information))
-            .route("/attestation", routing::post(handler::post_attestation))
+            .route(
+                "/attestation",
+                routing::get(handler::get_attestation).post(handler::post_attestation),
+            )
             .route("/canister/query", routing::post(handler::query_canister))
             .route("/canister/update", routing::post(handler::update_canister))
             .with_state(handler::AppState {
@@ -229,6 +224,7 @@ async fn main() -> Result<()> {
     };
 
     let public_server = async {
+        return Result::<()>::Ok(());
         let secret = tee_agent
             .get_cose_secret(SettingPath {
                 ns: namespace.clone(),
