@@ -1,9 +1,9 @@
 use ciborium::from_reader;
 use coset::{iana, Algorithm, CborSerializable, CoseSign1};
 use lazy_static::lazy_static;
-use p384::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+use ring::signature::{VerificationAlgorithm, ECDSA_P384_SHA384_FIXED};
 use sha2::Sha384;
-use x509_parser::prelude::*;
+use x509_parser::{pem::Pem, prelude::*};
 
 // https://github.com/aws/aws-nitro-enclaves-nsm-api/blob/main/docs/attestation_process.md
 
@@ -12,10 +12,19 @@ use crate::Attestation;
 const SIGN1_TAG_PREFIX: &[u8] = &[0xd2]; // COSE_Sign1 Tag 18
 const ALG_ES384: Algorithm = Algorithm::Assigned(iana::Algorithm::ES384);
 
-static ROOT_CERT_PEM: &[u8] = include_bytes!("./AWS_NitroEnclaves_Root-G1.pem");
+const ROOT_CERT_PEM: &[u8] = include_bytes!("./AWS_NitroEnclaves_Root-G1.pem");
 
 lazy_static! {
-    static ref ROOT_CERT: X509Certificate<'static> = x509_cert(ROOT_CERT_PEM).unwrap();
+    static ref ROOT_CERT_PUBKEY: Vec<u8> = {
+        let mut pems = Pem::iter_from_buffer(ROOT_CERT_PEM)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Failed to parse PEM buffer");
+        let pem = pems.pop().expect("No PEM blocks found");
+        let cert = pem.parse_x509().expect("Failed to parse X.509 certificate");
+        let pk = cert.public_key();
+        let pk = pk.subject_public_key.as_ref().to_vec();
+        pk
+    };
 }
 
 pub fn parse(attestation_doc: &[u8]) -> Result<(CoseSign1, Attestation), String> {
@@ -45,16 +54,18 @@ pub fn parse_and_verify(attestation_doc: &[u8]) -> Result<Attestation, String> {
             cs1.protected.header.alg
         ));
     }
-    let sig = Signature::from_der(&cs1.signature)
-        .map_err(|err| format!("invalid signature: {:?}", err))?;
+
     let cert = x509_cert(&doc.certificate)?;
     let pub_key = cert.public_key();
-    let verifying_key = VerifyingKey::from_sec1_bytes(pub_key.raw)
-        .map_err(|err| format!("invalid public key in X.509 certificate: {:?}", err))?;
     let msg = cs1.tbs_data(&[]);
-    verifying_key
-        .verify(&sha384(&msg), &sig)
-        .map_err(|err| format!("signature verification failed: {:?}", err))?;
+
+    ECDSA_P384_SHA384_FIXED
+        .verify(
+            pub_key.subject_public_key.as_ref().into(),
+            msg.as_slice().into(),
+            cs1.signature.as_slice().into(),
+        )
+        .map_err(|_| "signature verification failed".to_string())?;
 
     let mut certs: Vec<X509Certificate> = Vec::with_capacity(doc.cabundle.len());
     for pem in &doc.cabundle {
@@ -63,6 +74,7 @@ pub fn parse_and_verify(attestation_doc: &[u8]) -> Result<Attestation, String> {
     }
     certs.push(cert);
     certs.reverse();
+
     verify_cert_chain(&certs)?;
 
     Ok(doc)
@@ -102,7 +114,7 @@ pub fn verify_cert_chain(certs: &[X509Certificate]) -> Result<(), String> {
                         err
                     )
                 })?;
-        } else if cert.public_key() != ROOT_CERT.public_key() {
+        } else if cert.public_key().subject_public_key.as_ref() != *ROOT_CERT_PUBKEY {
             return Err(format!(
                 "certificate chain is broken: last certificate {:?} is not a root certificate",
                 cert.subject()
@@ -110,4 +122,18 @@ pub fn verify_cert_chain(certs: &[X509Certificate]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // https://github.com/briansmith/ring/issues/1942
+    // export C_INCLUDE_PATH="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/:$C_INCLUDE_PATH"
+    #[test]
+    fn test_parse_and_verify() {
+        let doc: &[u8] = include_bytes!("./test/attestation2.hex");
+        let doc = const_hex::decode(doc).unwrap();
+        let attestation = parse_and_verify(&doc).unwrap();
+        println!("{:?}", attestation);
+    }
 }

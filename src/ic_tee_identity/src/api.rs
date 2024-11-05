@@ -34,11 +34,31 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
         .public_key
         .ok_or_else(|| "missing public key".to_string())?;
 
-    // TODO: check request method and params
-    let _req: AttestationUserRequest<SignInParams> = attestation.user_data.map_or_else(
+    let req: AttestationUserRequest<SignInParams> = attestation.user_data.map_or_else(
         || Err("missing user data".to_string()),
         |data| from_reader(data.as_slice()).map_err(|err| format!("invalid user data: {:?}", err)),
     )?;
+    if req.method != "sign_in" {
+        return Err("invalid attestation user request method".to_string());
+    }
+
+    let user_key = match req.params.as_ref() {
+        Some(SignInParams { id_scope }) => {
+            if id_scope == "image" {
+                canister_user_key(ic_cdk::id(), &kind, pcr0.as_slice(), None)
+            } else if id_scope == "enclave" {
+                canister_user_key(
+                    ic_cdk::id(),
+                    &kind,
+                    pcr0.as_slice(),
+                    Some(attestation.module_id.as_bytes()),
+                )
+            } else {
+                return Err(format!("unsupport id_scope: {}", id_scope));
+            }
+        }
+        _ => return Err("invalid attestation user request params".to_string()),
+    };
 
     let session_expires_in_ms = store::state::with_mut(|state| {
         state.sign_in_count = state.sign_in_count.saturating_add(1);
@@ -46,7 +66,6 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
     });
     let expiration = (now_ms + session_expires_in_ms) * MILLISECONDS;
 
-    let user_key = canister_user_key(ic_cdk::id(), &kind, pcr0.as_slice(), None);
     let principal = Principal::self_authenticating(&user_key);
     let delegation_hash = delegation_signature_msg(pubkey.as_slice(), expiration, None);
     store::state::add_signature(principal.as_slice(), delegation_hash.as_slice());

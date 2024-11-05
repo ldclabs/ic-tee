@@ -200,8 +200,8 @@ async fn main() -> Result<()> {
             };
             pretty_println(&doc)?;
             match error {
-                Some(err) => println!("{} attestation verify failed: {}", kind, err),
-                None => println!("{} attestation verify success", kind),
+                Some(err) => println!("{} attestation verification failed: {}", kind, err),
+                None => println!("{} attestation verification success", kind),
             }
         }
 

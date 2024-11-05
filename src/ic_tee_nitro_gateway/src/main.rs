@@ -10,7 +10,7 @@ use ic_tee_agent::{
     setting::{decrypt_payload, decrypt_tls},
 };
 use ic_tee_cdk::{to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInformation};
-use ic_tee_nitro_attestation::{parse, parse_and_verify, AttestationRequest};
+use ic_tee_nitro_attestation::{parse_and_verify, AttestationRequest};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use structured_logger::{async_json::new_writer, get_env_level, unix_ms, Builder};
 use tokio::signal;
@@ -91,22 +91,21 @@ async fn main() -> Result<()> {
     })
     .map_err(anyhow::Error::msg)?;
 
-    // let attestation = parse_and_verify(doc.as_slice()).map_err(anyhow::Error::msg)?;
-    let (_, attestation) = parse(doc.as_slice()).map_err(anyhow::Error::msg)?;
+    let attestation = parse_and_verify(doc.as_slice()).map_err(anyhow::Error::msg)?;
 
-    // tee_agent
-    //     .sign_in(TEE_KIND.to_string(), doc.into())
-    //     .await
-    //     .map_err(anyhow::Error::msg)?;
+    tee_agent
+        .sign_in(TEE_KIND.to_string(), doc.into())
+        .await
+        .map_err(anyhow::Error::msg)?;
 
-    let upgrade_identity = if let Some(v) = cli.configuration_upgrade_identity {
-        // Some(Principal::from_text(v).map_err(|err| {
-        //     anyhow::anyhow!("invalid configuration_upgrade_identity: {}", err)
-        // })?)
-        None
-    } else {
-        None
-    };
+    let upgrade_identity =
+        if let Some(v) = cli.configuration_upgrade_identity {
+            Some(Principal::from_text(v).map_err(|err| {
+                anyhow::anyhow!("invalid configuration_upgrade_identity: {}", err)
+            })?)
+        } else {
+            None
+        };
 
     // upgrade to a permanent identity
     let upgrade_identity = if let Some(subject) = upgrade_identity {
@@ -164,7 +163,6 @@ async fn main() -> Result<()> {
     // 24 hours - 10 minutes
     let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 10;
     let refresh_identity = async {
-        return Result::<()>::Ok(());
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
@@ -224,7 +222,6 @@ async fn main() -> Result<()> {
     };
 
     let public_server = async {
-        return Result::<()>::Ok(());
         let secret = tee_agent
             .get_cose_secret(SettingPath {
                 ns: namespace.clone(),
