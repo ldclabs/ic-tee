@@ -53,9 +53,6 @@ struct Cli {
     #[clap(long, value_parser)]
     configuration_namespace: String,
 
-    #[clap(long, value_parser)]
-    configuration_tls: String,
-
     /// identity to upgrade
     #[clap(long, value_parser)]
     configuration_upgrade_identity: Option<String>,
@@ -209,7 +206,7 @@ async fn main() -> Result<()> {
                 tee_agent: tee_agent.clone(),
                 upstream_port: None,
             });
-        let addr: SocketAddr = "127.0.0.1:80".parse().map_err(anyhow::Error::new)?;
+        let addr: SocketAddr = "127.0.0.1:8080".parse().map_err(anyhow::Error::new)?;
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
             .map_err(anyhow::Error::new)?;
@@ -259,7 +256,7 @@ async fn main() -> Result<()> {
                 tee_agent: tee_agent.clone(),
                 upstream_port: cli.upstream_port,
             });
-        let addr: SocketAddr = "127.0.0.1:443".parse().map_err(anyhow::Error::new)?;
+        let addr: SocketAddr = "127.0.0.1:8443".parse().map_err(anyhow::Error::new)?;
         let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
             .await
             .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;

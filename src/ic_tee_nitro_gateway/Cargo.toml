@@ -2,7 +2,7 @@
 name = "ic_tee_nitro_gateway"
 description = "An gateway service in an AWS Nitro enclave."
 repository = "https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_nitro_gateway"
-publish = true
+publish = false
 version.workspace = true
 edition.workspace = true
 keywords.workspace = true
