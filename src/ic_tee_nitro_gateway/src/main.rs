@@ -61,26 +61,35 @@ struct Cli {
     #[clap(long, value_parser)]
     configuration_upgrade_identity: Option<String>,
 
+    /// upstream port
     #[clap(long, value_parser)]
     upstream_port: Option<u16>,
+
+    /// where the logtail server is running on host (e.g. 127.0.0.1:9999)
+    /// it should not be used in production
+    #[clap(long, value_parser)]
+    debug: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    match TcpStream::connect("127.0.0.1:9999").await {
-        Ok(stream) => {
+    let cli = Cli::parse();
+    match cli.debug {
+        Some(ref ip_addr) => {
+            let stream = TcpStream::connect(ip_addr).await?;
+            stream.writable().await?;
             Builder::with_level(&get_env_level().to_string())
                 .with_target_writer("*", new_writer(stream))
                 .init();
         }
-        Err(_) => {
+        None => {
             Builder::with_level(&get_env_level().to_string())
                 .with_target_writer("*", new_writer(tokio::io::stdout()))
                 .init();
         }
-    };
+    }
 
-    match serve().await {
+    match serve(cli).await {
         Ok(_) => Ok(()),
         Err(err) => {
             log::error!(target: "server", "server error: {:?}", err);
@@ -89,9 +98,9 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn serve() -> Result<()> {
+async fn serve(cli: Cli) -> Result<()> {
     let start = Instant::now();
-    let cli = Cli::parse();
+
     // https://github.com/rustls/rustls/issues/1938
     rustls::crypto::ring::default_provider()
         .install_default()
@@ -267,7 +276,9 @@ async fn serve() -> Result<()> {
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
             .map_err(anyhow::Error::new)?;
-        log::warn!(target: "server", "local {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
+        log::warn!(target: "server",
+            elapsed = start.elapsed().as_millis() as u64;
+            "local {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_future)
             .await
@@ -324,7 +335,10 @@ async fn serve() -> Result<()> {
         let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
             .await
             .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
-        log::warn!(target: "server", "{}@{} listening on {:?} with tls", APP_NAME, APP_VERSION,addr);
+
+        log::warn!(target: "server",
+            elapsed = start.elapsed().as_millis() as u64;
+            "{}@{} listening on {:?} with tls", APP_NAME, APP_VERSION,addr);
         axum_server::bind_rustls(addr, config)
             .handle(handle)
             .serve(app.into_make_service())

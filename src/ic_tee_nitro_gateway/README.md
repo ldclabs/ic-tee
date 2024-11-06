@@ -38,7 +38,7 @@ iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1
 ```bash
 wget -O port-to-vsock-transparent http://public.artifacts.marlin.pro/projects/enclaves/port-to-vsock-transparent_v1.0.0_linux_amd64
 chmod +x port-to-vsock-transparent
-./port-to-vsock-transparent --vsock 88 --ip-addr 0.0.0.0:1200
+./port-to-vsock-transparent --vsock 88 --ip-addr 127.0.0.1:1200
 ```
 
 #### Build and run enclave
@@ -49,6 +49,7 @@ https://docs.aws.amazon.com/enclaves/latest/user/getting-started.html
 
 ```bash
 cargo install ic_tee_cli
+sudo docker pull ghcr.io/ldclabs/ic_tee_nitro_gateway_enclave_amd64:latest
 sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_enclave_amd64:latest --output-file ic_tee_nitro_gateway_enclave_amd64.eif
 # Start building the Enclave Image...
 # Using the locally available Docker image...
@@ -56,13 +57,13 @@ sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_e
 # {
 #   "Measurements": {
 #     "HashAlgorithm": "Sha384 { ... }",
-#     "PCR0": "455e339a4383e33a186d32318f31a3564b54212d42678412ef53e61e93e177a7ab9a518f812f5cb2edc52a52300a4d1f",
+#     "PCR0": "97c5576d895344eb6baeb065d1d25cb4717aa8682e6d7e746619717de75dcc983e8b31417ecea299f10aeb6bbb696e30",
 #     "PCR1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
-#     "PCR2": "bc54c11b7fd8a0e09b2533085812ca62a40730884401a57494a39ce2c4e019fe12443a75e3e0de5debbfeeec046cc144"
+#     "PCR2": "72b5f94b073548b63fd2221902895ae1cbbd867e056fe28451ffd1824b948beac58406f67013a1eb418df509c9ed326c"
 #   }
 # }
-ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 455e339a4383e33a186d32318f31a3564b54212d42678412ef53e61e93e177a7ab9a518f812f5cb2edc52a52300a4d1f
-# principal: kagyz-dugyk-mjq43-w6hha-ha5ys-6ohr7-cb4e5-hwogb-fp3rk-lw75p-fae
+ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 97c5576d895344eb6baeb065d1d25cb4717aa8682e6d7e746619717de75dcc983e8b31417ecea299f10aeb6bbb696e30
+# principal: ej3n4-hzvsq-2xoll-hwuge-y6if5-lznkb-lzcei-yhzmu-a3rnf-wpgov-jqe
 sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-path ic_tee_nitro_gateway_enclave_amd64.eif
 # Start allocating memory...
 # Started enclave with enclave-cid: 88, memory: 512 MiB, cpu-ids: [1, 3]
@@ -79,9 +80,8 @@ sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-pat
 #   "MemoryMiB": 512
 # }
 sudo nitro-cli describe-enclaves
-sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc192ff48af2a5af9
+sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc193006607ea8974
 ```
-
 
 ## License
 Copyright © 2024 [LDC Labs](https://github.com/ldclabs).

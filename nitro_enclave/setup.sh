@@ -24,7 +24,6 @@ iptables -A POSTROUTING -t nat -o lo -s 0.0.0.0 -j SNAT --to-source 127.0.0.1
 iptables -L -t nat -v -n
 
 # your custom setup goes here
-# export LOG_LEVEL=Debug
 
 # starting supervisord
 cat /etc/supervisord.conf
