@@ -11,7 +11,11 @@ use ic_tee_agent::{
 };
 use ic_tee_cdk::{to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInformation};
 use ic_tee_nitro_attestation::{parse_and_verify, AttestationRequest};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use structured_logger::{async_json::new_writer, get_env_level, unix_ms, Builder};
 use tokio::{net::TcpStream, signal};
 use tokio_util::sync::CancellationToken;
@@ -86,6 +90,7 @@ async fn main() -> Result<()> {
 }
 
 async fn serve() -> Result<()> {
+    let start = Instant::now();
     let cli = Cli::parse();
     let authentication_canister = Principal::from_text(cli.authentication_canister)
         .map_err(|err| anyhow::anyhow!("invalid authentication_canister id: {}", err))?;
@@ -111,13 +116,18 @@ async fn serve() -> Result<()> {
     .map_err(anyhow::Error::msg)?;
 
     let attestation = parse_and_verify(doc.as_slice()).map_err(anyhow::Error::msg)?;
+    log::info!(target: "server",
+        elapsed = start.elapsed().as_millis() as u64;
+       "parse_and_verify attestation for sign in, module_id: {:?}", attestation.module_id);
 
     tee_agent
         .sign_in(TEE_KIND.to_string(), doc.into())
         .await
         .map_err(anyhow::Error::msg)?;
 
-    log::info!(target: "server", "tee_agent sign_in principal: {:?}", tee_agent.principal().await.to_text());
+    log::info!(target: "server",
+        elapsed = start.elapsed().as_millis() as u64;
+       "tee_agent sign_in, principal: {:?}", tee_agent.principal().await.to_text());
 
     let upgrade_identity =
         if let Some(v) = cli.configuration_upgrade_identity {
@@ -141,10 +151,18 @@ async fn serve() -> Result<()> {
             .get_cose_secret(id_path.clone())
             .await
             .map_err(anyhow::Error::msg)?;
+        log::info!(target: "server",
+            elapsed = start.elapsed().as_millis() as u64;
+            "tee_agent get_cose_secret for upgrade_identity, principal: {:?}", subject.to_text());
+
         let setting = tee_agent
             .get_cose_setting(id_path)
             .await
             .map_err(anyhow::Error::msg)?;
+        log::info!(target: "server",
+            elapsed = start.elapsed().as_millis() as u64;
+            "tee_agent get_cose_setting for upgrade_identity, principal: {:?}", subject.to_text());
+
         let ed25519_secret = decrypt_payload(setting, secret).map_err(anyhow::Error::msg)?;
         let ed25519_secret: [u8; 32] = ed25519_secret.try_into().map_err(|val: Vec<u8>| {
             anyhow::anyhow!("invalid secret, expected 32 bytes, got {}", val.len())
@@ -153,7 +171,10 @@ async fn serve() -> Result<()> {
         tee_agent
             .upgrade_identity_with(&id, session_expires_in_ms)
             .await;
-        log::info!(target: "server", "tee_agent upgrade_identity principal: {:?}", tee_agent.principal().await.to_text());
+
+        log::info!(target: "server",
+            elapsed = start.elapsed().as_millis() as u64;
+            "tee_agent upgrade_identity, principal: {:?}", tee_agent.principal().await.to_text());
         Some(id)
     } else {
         None
@@ -265,6 +286,9 @@ async fn serve() -> Result<()> {
             .await
             .map_err(anyhow::Error::msg)?;
         let tls = decrypt_tls(setting, secret).map_err(anyhow::Error::msg)?;
+        log::info!(target: "server",
+            elapsed = start.elapsed().as_millis() as u64;
+            "tee_agent get tls");
 
         let app = Router::new()
             .route(

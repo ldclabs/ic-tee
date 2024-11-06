@@ -121,8 +121,8 @@ impl TEEAgent {
 
     pub async fn get_cose_setting(&self, path: SettingPath) -> Result<SettingInfo, String> {
         let res: Result<SettingInfo, String> = self
-            .update_call(&self.configuration_canister, "setting_get", (path,))
-            .await;
+            .query_call(&self.configuration_canister, "setting_get", (path,))
+            .await?;
         res
     }
 
