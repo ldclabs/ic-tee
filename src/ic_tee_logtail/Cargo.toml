@@ -13,3 +13,4 @@ license.workspace = true
 tokio = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+log = { workspace = true }

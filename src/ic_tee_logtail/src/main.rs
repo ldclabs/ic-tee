@@ -15,14 +15,14 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(&cli.ip_addr).await?;
     println!("listening on {:?}", listener.local_addr()?);
 
-    loop {
-        match listener.accept().await {
-            Err(err) => println!("couldn't get client: {:?}", err),
-            Ok((mut stream, addr)) => {
-                println!("accept a client: {:?}", addr);
-                stream.readable().await?;
-                io::copy(&mut stream, &mut io::stdout()).await?;
+    while let Ok((mut stream, addr)) = listener.accept().await {
+        tokio::spawn(async move {
+            log::info!(target: "logtail", "accept a client: {:?}", addr);
+            let _ = stream.readable().await;
+            if let Err(err) = io::copy(&mut stream, &mut io::stdout()).await {
+                log::error!(target: "logtail", "error in transfer: {:?}", err);
             }
-        }
+        });
     }
+    Ok(())
 }
