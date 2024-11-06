@@ -11,5 +11,5 @@ license.workspace = true
 
 [dependencies]
 tokio = { workspace = true }
-anyhow = "1"
-clap = { version = "=4.5", features = ["derive"] }
+anyhow = { workspace = true }
+clap = { workspace = true }

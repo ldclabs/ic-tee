@@ -4,7 +4,7 @@
 [![Test](https://github.com/ldclabs/ic-tee/actions/workflows/test.yml/badge.svg)](https://github.com/ldclabs/ic-tee/actions/workflows/test.yml)
 [![Latest Version](https://img.shields.io/crates/v/ic_tee_logtail.svg)](https://crates.io/crates/ic_tee_logtail)
 
-`ic_tee_logtail` is a simple log tailing service for the TEE environment..
+`ic_tee_logtail` is a simple log tailing service for the TEE environment.
 
 ## Usage
 

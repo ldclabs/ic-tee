@@ -67,32 +67,26 @@ struct Cli {
 
     /// where the logtail server is running on host (e.g. 127.0.0.1:9999)
     /// it should not be used in production
-    #[clap(long, value_parser)]
-    debug: Option<String>,
+    #[clap(long, value_parser, default_value = "127.0.0.1:9999")]
+    bootstrap_logtail: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    match cli.debug {
-        Some(ref ip_addr) => {
-            let stream = TcpStream::connect(ip_addr).await?;
-            stream.writable().await?;
-            Builder::with_level(&get_env_level().to_string())
-                .with_target_writer("*", new_writer(stream))
-                .init();
-        }
-        None => {
-            Builder::with_level(&get_env_level().to_string())
-                .with_target_writer("*", new_writer(tokio::io::stdout()))
-                .init();
-        }
-    }
+    let stream = TcpStream::connect(&cli.bootstrap_logtail).await?;
+    stream.writable().await?;
+    Builder::with_level(&get_env_level().to_string())
+        .with_target_writer("bootstrap", new_writer(stream))
+        .with_target_writer("*", new_writer(tokio::io::stdout()))
+        .init();
+
+    log::info!(target: "bootstrap", "starting {}@{} in TEE", APP_NAME, APP_VERSION);
 
     match serve(cli).await {
         Ok(_) => Ok(()),
         Err(err) => {
-            log::error!(target: "server", "server error: {:?}", err);
+            log::error!(target: "bootstrap", "server error: {:?}", err);
             Err(err)
         }
     }
@@ -130,7 +124,7 @@ async fn serve(cli: Cli) -> Result<()> {
     .map_err(anyhow::Error::msg)?;
 
     let attestation = parse_and_verify(doc.as_slice()).map_err(anyhow::Error::msg)?;
-    log::info!(target: "server",
+    log::info!(target: "bootstrap",
         elapsed = start.elapsed().as_millis() as u64;
        "parse_and_verify attestation for sign in, module_id: {:?}", attestation.module_id);
 
@@ -139,7 +133,7 @@ async fn serve(cli: Cli) -> Result<()> {
         .await
         .map_err(anyhow::Error::msg)?;
 
-    log::info!(target: "server",
+    log::info!(target: "bootstrap",
         elapsed = start.elapsed().as_millis() as u64;
        "sign_in, principal: {:?}", tee_agent.principal().await.to_text());
 
@@ -165,7 +159,7 @@ async fn serve(cli: Cli) -> Result<()> {
             .get_cose_secret(id_path.clone())
             .await
             .map_err(anyhow::Error::msg)?;
-        log::info!(target: "server",
+        log::info!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
             "get_cose_secret for upgrade_identity, principal: {:?}", subject.to_text());
 
@@ -173,7 +167,7 @@ async fn serve(cli: Cli) -> Result<()> {
             .get_cose_setting(id_path)
             .await
             .map_err(anyhow::Error::msg)?;
-        log::info!(target: "server",
+        log::info!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
             "get_cose_setting for upgrade_identity, principal: {:?}", subject.to_text());
 
@@ -186,7 +180,7 @@ async fn serve(cli: Cli) -> Result<()> {
             .upgrade_identity_with(&id, session_expires_in_ms)
             .await;
 
-        log::info!(target: "server",
+        log::info!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
             "upgrade_identity, principal: {:?}", tee_agent.principal().await.to_text());
         Some(id)
@@ -209,7 +203,7 @@ async fn serve(cli: Cli) -> Result<()> {
         registration_canister: None,
     };
 
-    log::info!(target: "server",
+    log::info!(target: "bootstrap",
         info:serde = info,
         elapsed = start.elapsed().as_millis() as u64;
         "TEE app information, principal: {:?}", principal.to_text());
@@ -276,7 +270,7 @@ async fn serve(cli: Cli) -> Result<()> {
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
             .map_err(anyhow::Error::new)?;
-        log::warn!(target: "server",
+        log::warn!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
             "local {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
         axum::serve(listener, app)
@@ -296,7 +290,7 @@ async fn serve(cli: Cli) -> Result<()> {
             })
             .await
             .map_err(anyhow::Error::msg)?;
-        log::info!(target: "server",
+        log::info!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
             "get_cose_secret for TLS");
 
@@ -310,7 +304,7 @@ async fn serve(cli: Cli) -> Result<()> {
             })
             .await
             .map_err(anyhow::Error::msg)?;
-        log::info!(target: "server",
+        log::info!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
             "get_cose_setting for TLS");
 
@@ -336,7 +330,7 @@ async fn serve(cli: Cli) -> Result<()> {
             .await
             .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
 
-        log::warn!(target: "server",
+        log::warn!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
             "{}@{} listening on {:?} with tls", APP_NAME, APP_VERSION,addr);
         axum_server::bind_rustls(addr, config)
@@ -349,7 +343,7 @@ async fn serve(cli: Cli) -> Result<()> {
     match tokio::try_join!(refresh_identity, local_server, public_server) {
         Ok(_) => Ok(()),
         Err(err) => {
-            log::error!(target: "server", "server error: {:?}", err);
+            log::error!(target: "bootstrap", "server error: {:?}", err);
             Err(err)
         }
     }
@@ -378,7 +372,7 @@ async fn shutdown_signal(handle: axum_server::Handle, cancel_token: Cancellation
         _ = terminate => {},
     }
 
-    log::warn!(target: "server", "received termination signal, starting graceful shutdown");
+    log::warn!(target: "bootstrap", "received termination signal, starting graceful shutdown");
     // 10 secs is how long server will wait to force shutdown
     handle.graceful_shutdown(Some(Duration::from_secs(10)));
     cancel_token.cancel();

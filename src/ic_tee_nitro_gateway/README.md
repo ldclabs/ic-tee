@@ -57,13 +57,22 @@ sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_e
 # {
 #   "Measurements": {
 #     "HashAlgorithm": "Sha384 { ... }",
-#     "PCR0": "97c5576d895344eb6baeb065d1d25cb4717aa8682e6d7e746619717de75dcc983e8b31417ecea299f10aeb6bbb696e30",
+#     "PCR0": "1b2c6645b08d685dd673cb6271c81f26d668452bbcb63f5b6516745d6ef9401de9ed8e895218ab663a82f7bf2ebb63ad",
 #     "PCR1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
-#     "PCR2": "72b5f94b073548b63fd2221902895ae1cbbd867e056fe28451ffd1824b948beac58406f67013a1eb418df509c9ed326c"
+#     "PCR2": "50193d35e1e8ee7ce4fa169fafd951fd55d3382afa7cc8d253484a2c576fdd66ded2affdda334d4c9edda0d53d0683d8"
 #   }
 # }
-ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 97c5576d895344eb6baeb065d1d25cb4717aa8682e6d7e746619717de75dcc983e8b31417ecea299f10aeb6bbb696e30
-# principal: ej3n4-hzvsq-2xoll-hwuge-y6if5-lznkb-lzcei-yhzmu-a3rnf-wpgov-jqe
+ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 1b2c6645b08d685dd673cb6271c81f26d668452bbcb63f5b6516745d6ef9401de9ed8e895218ab663a82f7bf2ebb63ad
+# principal: 7phvc-jpig7-tqnlh-nkik5-le57d-reruv-kjkkp-ngegn-uafjd-3j4p5-7qe
+
+dfx canister call ic_cose_canister setting_add_readers '(record {
+  ns = "_";
+  key = blob "\69\64\5f\65\64\32\35\35\31\39";
+  subject = opt principal "fbi6t-ogdrt-s4de4-sxive-x4yid-xfrk2-e6jgf-jbnuh-rzxoj-qv2qa-zae";
+  version = 1;
+  user_owned = false;
+}, vec{ principal "7phvc-jpig7-tqnlh-nkik5-le57d-reruv-kjkkp-ngegn-uafjd-3j4p5-7qe" })' --ic
+
 sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-path ic_tee_nitro_gateway_enclave_amd64.eif
 # Start allocating memory...
 # Started enclave with enclave-cid: 88, memory: 512 MiB, cpu-ids: [1, 3]
