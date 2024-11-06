@@ -8,7 +8,11 @@ type InitArgs = record { session_expires_in_ms : nat64; name : text };
 type Result = variant { Ok : SignedDelegation; Err : text };
 type Result_1 = variant { Ok : State; Err : text };
 type Result_2 = variant { Ok : SignInResponse; Err : text };
-type SignInResponse = record { user_key : blob; expiration : nat64 };
+type SignInResponse = record {
+  user_key : blob;
+  seed : blob;
+  expiration : nat64;
+};
 type SignedDelegation = record { signature : blob; delegation : Delegation };
 type State = record {
   session_expires_in_ms : nat64;
@@ -20,7 +24,8 @@ type UpgradeArgs = record {
   name : opt text;
 };
 service : (opt ChainArgs) -> {
-  get_delegation : (principal, blob, nat64) -> (Result) query;
+  get_delegation : (blob, blob, nat64) -> (Result) query;
   get_state : () -> (Result_1) query;
   sign_in : (text, blob) -> (Result_2);
+  whoami : () -> (principal) query;
 }

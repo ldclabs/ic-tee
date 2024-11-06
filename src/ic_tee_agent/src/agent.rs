@@ -16,6 +16,7 @@ use crate::{setting::get_cose_secret, BasicIdentity, TEEIdentity};
 
 #[derive(Clone)]
 pub struct TEEAgent {
+    is_local: bool,
     identity: Arc<RwLock<TEEIdentity>>,
     agent: Arc<RwLock<Agent>>,
     authentication_canister: Principal,
@@ -36,11 +37,23 @@ impl TEEAgent {
             .build()
             .map_err(format_error)?;
         Ok(Self {
+            is_local: host.starts_with("http://"),
             identity: Arc::new(RwLock::new(identity)),
             agent: Arc::new(RwLock::new(agent)),
             authentication_canister,
             configuration_canister,
         })
+    }
+
+    pub async fn init(&self) -> Result<(), String> {
+        if self.is_local {
+            let agent = self.agent.read().await;
+            agent
+                .fetch_root_key()
+                .await
+                .map_err(|err| format!("fetch root key failed: {:?}", err))?;
+        }
+        Ok(())
     }
 
     pub async fn principal(&self) -> Principal {
@@ -75,11 +88,7 @@ impl TEEAgent {
             .query_call(
                 &self.authentication_canister,
                 "get_delegation",
-                (
-                    id.principal(),
-                    ByteBuf::from(id.session_key()),
-                    res.expiration,
-                ),
+                (res.seed, ByteBuf::from(id.session_key()), res.expiration),
             )
             .await?;
         let res = res?;
@@ -218,4 +227,82 @@ where
         .map_err(format_error)?;
     let output = Decode!(res.as_slice(), Out).map_err(format_error)?;
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ic_cose_types::types::state::StateInfo;
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore]
+    async fn test_ic_tee_identity() {
+        let host = "https://icp-api.io";
+        // let host = "http://127.0.0.1:4943";
+        let authentication_canister = Principal::from_text("e7tgb-6aaaa-aaaap-akqfa-cai").unwrap();
+        let configuration_canister = Principal::from_text("53cyg-yyaaa-aaaap-ahpua-cai").unwrap();
+        let tee_agent = TEEAgent::new(host, authentication_canister, configuration_canister)
+            .expect("Failed to create TEEAgent");
+        tee_agent.init().await.unwrap();
+
+        println!(
+            "tee_agent init principal: {:?}",
+            tee_agent.principal().await.to_text()
+        );
+        let pubkey = tee_agent.session_key().await;
+        let res: Result<SignInResponse, String> = tee_agent
+            .update_call(
+                &tee_agent.authentication_canister,
+                "sign_in_debug",
+                (ByteBuf::from(pubkey),),
+            )
+            .await
+            .unwrap();
+        let res = res.unwrap();
+        let mut id = {
+            let id = tee_agent.identity.read().await;
+            id.clone()
+            // drop read lock
+        };
+
+        println!("user_key: {:?}", const_hex::encode(&res.user_key));
+        id.with_user_key(res.user_key.to_vec());
+        let principal = id.principal();
+        let res: Result<SignedDelegation, String> = tee_agent
+            .query_call(
+                &tee_agent.authentication_canister,
+                "get_delegation",
+                (res.seed, ByteBuf::from(id.session_key()), res.expiration),
+            )
+            .await
+            .unwrap();
+        let res = res.unwrap();
+
+        id.with_delegation(res).unwrap();
+        {
+            tee_agent.agent.write().await.set_identity(id.clone());
+            let mut w = tee_agent.identity.write().await;
+            *w = id;
+            // drop write lock
+        }
+        let principal2 = { tee_agent.agent.read().await.get_principal().unwrap() };
+        assert_eq!(principal, principal2);
+        assert_eq!(principal, tee_agent.principal().await);
+
+        println!("tee_agent sign in principal: {:?}", principal.to_text());
+        println!(
+            "tee_agent sign in seed: {:?}",
+            const_hex::encode(principal.as_slice())
+        );
+        let res: Principal = tee_agent
+            .query_call(&tee_agent.authentication_canister, "whoami", ())
+            .await
+            .unwrap();
+        println!("configuration canister whoami: {:?}", res.to_text());
+        let res: Result<StateInfo, String> = tee_agent
+            .query_call(&tee_agent.configuration_canister, "state_get_info", ())
+            .await
+            .unwrap();
+        println!("configuration canister state: {:?}", res.unwrap());
+    }
 }

@@ -117,6 +117,8 @@ async fn serve() -> Result<()> {
         .await
         .map_err(anyhow::Error::msg)?;
 
+    log::info!(target: "server", "tee_agent sign_in principal: {:?}", tee_agent.principal().await.to_text());
+
     let upgrade_identity =
         if let Some(v) = cli.configuration_upgrade_identity {
             Some(Principal::from_text(v).map_err(|err| {
@@ -151,6 +153,7 @@ async fn serve() -> Result<()> {
         tee_agent
             .upgrade_identity_with(&id, session_expires_in_ms)
             .await;
+        log::info!(target: "server", "tee_agent upgrade_identity principal: {:?}", tee_agent.principal().await.to_text());
         Some(id)
     } else {
         None

@@ -182,7 +182,7 @@ async fn main() -> Result<()> {
             let canister = Principal::from_text(&cli.canister)
                 .map_err(|err| anyhow::anyhow!("invalid canister: {:?}", err))?;
             let user_key = canister_user_key(canister, kind, &seed, sub_seed.as_deref());
-            let principal = Principal::self_authenticating(&user_key);
+            let principal = Principal::self_authenticating(user_key.to_der());
 
             println!("principal: {}", principal);
         }

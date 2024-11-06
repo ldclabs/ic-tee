@@ -29,6 +29,8 @@ pub struct SignInResponse {
     pub expiration: u64,
     /// The user canister public key. This key is used to derive the user principal.
     pub user_key: ByteBuf,
+    /// seed is a part of the user_key
+    pub seed: ByteBuf,
 }
 
 pub fn canister_user_key(
@@ -36,7 +38,7 @@ pub fn canister_user_key(
     kind: &str, // should be "Nitro"
     seed: &[u8],
     sub_seed: Option<&[u8]>,
-) -> Vec<u8> {
+) -> CanisterSigPublicKey {
     let len = 1 + kind.len() + 32;
     let mut data = Vec::with_capacity(len);
     data.push(kind.len() as u8);
@@ -50,7 +52,7 @@ pub fn canister_user_key(
     }
     let (_, buf) = data.split_last_chunk_mut::<32>().unwrap();
     hasher.finalize_into(buf.into());
-    CanisterSigPublicKey::new(canister, data).to_der()
+    CanisterSigPublicKey::new(canister, data)
 }
 
 #[cfg(test)]
@@ -66,15 +68,17 @@ mod tests {
         let canister = Principal::from_text("e7tgb-6aaaa-aaaap-akqfa-cai").unwrap();
         let kind = "Nitro";
         let seed = [8u8; 48];
-        let user_key = canister_user_key(canister, kind, &seed, None);
+        let user_key = canister_user_key(canister, kind, &seed, None).to_der();
         assert!(is_sub(&user_key, canister.as_slice()));
         assert!(is_sub(&user_key, kind.to_uppercase().as_bytes()));
         assert!(!is_sub(&user_key, seed.as_slice()));
 
-        let user_key2 = canister_user_key(canister, kind, &seed, Some(&[1u8, 2u8, 3u8, 4u8]));
+        let user_key2 =
+            canister_user_key(canister, kind, &seed, Some(&[1u8, 2u8, 3u8, 4u8])).to_der();
         assert_ne!(user_key, user_key2);
 
-        let user_key3 = canister_user_key(canister, kind, &seed, Some(&[1u8, 2u8, 3u8, 5u8]));
+        let user_key3 =
+            canister_user_key(canister, kind, &seed, Some(&[1u8, 2u8, 3u8, 5u8])).to_der();
         assert_ne!(user_key2, user_key3);
     }
 }

@@ -61,8 +61,8 @@ sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_e
 #     "PCR2": "7584fed461361c6e8c4f56e426f46e610b86ce8eae1cc407f221adf8f5a9053f452eefa3fbae5256e0b17e91ecd4cb3f"
 #   }
 # }
-ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 349166c4a015d98b39d6cd3c3a65a5c2ed11f4414687500dd0a7310f36b31d223d0f09662fa547d449e209bc3f2c15be
-# principal: ciar7-g7nzs-66aea-eu53p-vtwhv-7aoz2-hlmrv-dzhir-gkses-pbeem-pqe
+ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed ecf476c4d2682dc2f57773085058ee0e36b720d623b5cd6e8dc04388342a4ee9df8150b1e3dd9b5e11cbac02153e9faf
+# principal: yn7la-zcbb2-vnt52-dixn7-u6djx-mlrnd-vux2u-6llr3-v5xdd-2vi6h-oqe
 sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-path ic_tee_nitro_gateway_enclave_amd64.eif
 # Start allocating memory...
 # Started enclave with enclave-cid: 88, memory: 512 MiB, cpu-ids: [1, 3]
@@ -79,7 +79,7 @@ sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-pat
 #   "MemoryMiB": 512
 # }
 sudo nitro-cli describe-enclaves
-sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc192fc732d6e4e41
+sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc192fce92cafbc6f
 ```
 
 

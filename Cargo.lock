@@ -1618,12 +1618,13 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_agent"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "axum",
  "bytes",
  "candid",
  "ciborium",
+ "const-hex",
  "ed25519-consensus",
  "ic-agent",
  "ic_cose_types",
@@ -1639,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cdk"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "candid",
  "ciborium",
@@ -1651,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "candid",
@@ -1672,7 +1673,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_identity"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "candid",
  "ciborium",
@@ -1689,28 +1690,16 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_logtail"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
- "candid",
  "clap",
- "const-hex",
- "ed25519",
- "ed25519-consensus",
- "ic-agent",
- "ic_cose_types",
- "ic_tee_agent",
- "ic_tee_cdk",
- "ic_tee_nitro_attestation",
- "pkcs8",
- "rand",
- "serde_bytes",
  "tokio",
 ]
 
 [[package]]
 name = "ic_tee_nitro_attestation"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "candid",
  "ciborium",
@@ -1726,7 +1715,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_gateway"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "aws-nitro-enclaves-nsm-api",

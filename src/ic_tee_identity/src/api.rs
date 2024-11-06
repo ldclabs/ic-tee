@@ -18,6 +18,11 @@ fn get_state() -> Result<store::State, String> {
     Ok(store::state::with(|s| s.clone()))
 }
 
+#[ic_cdk::query]
+fn whoami() -> Principal {
+    ic_cdk::caller()
+}
+
 #[ic_cdk::update]
 fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String> {
     let attestation = match kind.as_str() {
@@ -66,24 +71,27 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
     });
     let expiration = (now_ms + session_expires_in_ms) * MILLISECONDS;
 
-    let principal = Principal::self_authenticating(&user_key);
     let delegation_hash = delegation_signature_msg(pubkey.as_slice(), expiration, None);
-    store::state::add_signature(principal.as_slice(), delegation_hash.as_slice());
+    store::state::add_signature(user_key.seed.as_slice(), delegation_hash.as_slice());
 
     Ok(SignInResponse {
         expiration,
-        user_key: user_key.into(),
+        user_key: user_key.to_der().into(),
+        seed: user_key.seed.into(),
     })
 }
 
 #[ic_cdk::query]
 fn get_delegation(
-    principal: Principal,
+    seed: ByteBuf,
     session_key: ByteBuf,
     expiration: u64,
 ) -> Result<SignedDelegation, String> {
+    if seed.len() > 48 {
+        return Err("invalid seed length".to_string());
+    }
     let delegation_hash = delegation_signature_msg(session_key.as_slice(), expiration, None);
-    let signature = store::state::get_signature(principal.as_slice(), delegation_hash.as_slice())?;
+    let signature = store::state::get_signature(seed.as_slice(), delegation_hash.as_slice())?;
     Ok(SignedDelegation {
         delegation: Delegation {
             pubkey: session_key,
