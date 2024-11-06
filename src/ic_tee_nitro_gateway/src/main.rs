@@ -270,26 +270,30 @@ async fn serve() -> Result<()> {
                 ns: namespace.clone(),
                 user_owned: false,
                 subject: Some(principal),
-                key: SETTING_KEY_TLS.as_bytes().to_vec().into(),
-                version: 0,
-            })
-            .await
-            .map_err(anyhow::Error::msg)?;
-        let setting = tee_agent
-            .get_cose_setting(SettingPath {
-                ns: namespace.clone(),
-                user_owned: false,
-                subject: Some(principal),
                 key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
                 version: 0,
             })
             .await
             .map_err(anyhow::Error::msg)?;
-        let tls = decrypt_tls(setting, secret).map_err(anyhow::Error::msg)?;
         log::info!(target: "server",
             elapsed = start.elapsed().as_millis() as u64;
-            "tee_agent get tls");
+            "tee_agent get_cose_secret for tls");
 
+        let setting = tee_agent
+            .get_cose_setting(SettingPath {
+                ns: namespace.clone(),
+                user_owned: false,
+                subject: Some(principal),
+                key: SETTING_KEY_TLS.as_bytes().to_vec().into(),
+                version: 0,
+            })
+            .await
+            .map_err(anyhow::Error::msg)?;
+        log::info!(target: "server",
+            elapsed = start.elapsed().as_millis() as u64;
+            "tee_agent get_cose_setting for tls");
+
+        let tls = decrypt_tls(setting, secret).map_err(anyhow::Error::msg)?;
         let app = Router::new()
             .route(
                 "/.well-known/information",
