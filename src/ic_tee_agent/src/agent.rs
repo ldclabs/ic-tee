@@ -110,8 +110,16 @@ impl TEEAgent {
         self.sign_in(kind, attestation).await
     }
 
-    pub async fn upgrade_identity_with(&self, id: &BasicIdentity, expires_in_ms: u64) {
-        self.identity.write().await.upgrade_with(id, expires_in_ms);
+    pub async fn upgrade_identity_with(&self, identity: &BasicIdentity, expires_in_ms: u64) {
+        let mut id = {
+            let id = self.identity.read().await;
+            id.clone()
+            // drop read lock
+        };
+        id.upgrade_with(identity, expires_in_ms);
+        self.agent.write().await.set_identity(id.clone());
+        let mut w = self.identity.write().await;
+        *w = id;
     }
 
     pub async fn get_cose_secret(&self, path: SettingPath) -> Result<[u8; 32], String> {

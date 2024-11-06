@@ -127,7 +127,7 @@ async fn serve() -> Result<()> {
 
     log::info!(target: "server",
         elapsed = start.elapsed().as_millis() as u64;
-       "tee_agent sign_in, principal: {:?}", tee_agent.principal().await.to_text());
+       "sign_in, principal: {:?}", tee_agent.principal().await.to_text());
 
     let upgrade_identity =
         if let Some(v) = cli.configuration_upgrade_identity {
@@ -153,7 +153,7 @@ async fn serve() -> Result<()> {
             .map_err(anyhow::Error::msg)?;
         log::info!(target: "server",
             elapsed = start.elapsed().as_millis() as u64;
-            "tee_agent get_cose_secret for upgrade_identity, principal: {:?}", subject.to_text());
+            "get_cose_secret for upgrade_identity, principal: {:?}", subject.to_text());
 
         let setting = tee_agent
             .get_cose_setting(id_path)
@@ -161,7 +161,7 @@ async fn serve() -> Result<()> {
             .map_err(anyhow::Error::msg)?;
         log::info!(target: "server",
             elapsed = start.elapsed().as_millis() as u64;
-            "tee_agent get_cose_setting for upgrade_identity, principal: {:?}", subject.to_text());
+            "get_cose_setting for upgrade_identity, principal: {:?}", subject.to_text());
 
         let ed25519_secret = decrypt_payload(setting, secret).map_err(anyhow::Error::msg)?;
         let ed25519_secret: [u8; 32] = ed25519_secret.try_into().map_err(|val: Vec<u8>| {
@@ -174,7 +174,7 @@ async fn serve() -> Result<()> {
 
         log::info!(target: "server",
             elapsed = start.elapsed().as_millis() as u64;
-            "tee_agent upgrade_identity, principal: {:?}", tee_agent.principal().await.to_text());
+            "upgrade_identity, principal: {:?}", tee_agent.principal().await.to_text());
         Some(id)
     } else {
         None
@@ -194,6 +194,11 @@ async fn serve() -> Result<()> {
         configuration_canister,
         registration_canister: None,
     };
+
+    log::info!(target: "server",
+        info:serde = info,
+        elapsed = start.elapsed().as_millis() as u64;
+        "TEE app information, principal: {:?}", principal.to_text());
 
     let http_client = Arc::new(handler::new_client());
     let tee_agent = Arc::new(tee_agent);
@@ -257,7 +262,7 @@ async fn serve() -> Result<()> {
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
             .map_err(anyhow::Error::new)?;
-        log::warn!(target: "local_server", "{}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
+        log::warn!(target: "server", "local {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_future)
             .await
@@ -277,7 +282,7 @@ async fn serve() -> Result<()> {
             .map_err(anyhow::Error::msg)?;
         log::info!(target: "server",
             elapsed = start.elapsed().as_millis() as u64;
-            "tee_agent get_cose_secret for tls");
+            "get_cose_secret for TLS");
 
         let setting = tee_agent
             .get_cose_setting(SettingPath {
@@ -291,7 +296,7 @@ async fn serve() -> Result<()> {
             .map_err(anyhow::Error::msg)?;
         log::info!(target: "server",
             elapsed = start.elapsed().as_millis() as u64;
-            "tee_agent get_cose_setting for tls");
+            "get_cose_setting for TLS");
 
         let tls = decrypt_tls(setting, secret).map_err(anyhow::Error::msg)?;
         let app = Router::new()
