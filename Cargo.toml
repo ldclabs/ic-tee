@@ -66,3 +66,4 @@ log = "0.4"
 structured-logger = "1"
 hyper-util = { version = "0.1.10", features = ["client-legacy"] }
 mime = "0.3"
+rustls = "0.23"

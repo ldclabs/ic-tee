@@ -1730,6 +1730,7 @@ dependencies = [
  "ic_tee_cdk",
  "ic_tee_nitro_attestation",
  "log",
+ "rustls",
  "structured-logger",
  "tokio",
  "tokio-util",
@@ -2692,6 +2693,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eee87ff5d9b36712a58574e12e9f0ea80f915a5b0ac518d322b24a465617925e"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",

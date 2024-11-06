@@ -92,6 +92,11 @@ async fn main() -> Result<()> {
 async fn serve() -> Result<()> {
     let start = Instant::now();
     let cli = Cli::parse();
+    // https://github.com/rustls/rustls/issues/1938
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let authentication_canister = Principal::from_text(cli.authentication_canister)
         .map_err(|err| anyhow::anyhow!("invalid authentication_canister id: {}", err))?;
     let configuration_canister = Principal::from_text(cli.configuration_canister)
