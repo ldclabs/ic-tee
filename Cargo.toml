@@ -67,3 +67,12 @@ structured-logger = "1"
 hyper-util = { version = "0.1.10", features = ["client-legacy"] }
 mime = "0.3"
 rustls = "0.23"
+reqwest = { version = "0.12", features = [
+  "rustls-tls",
+  "rustls-tls-native-roots",
+  "json",
+  "gzip",
+  "stream",
+  "http2",
+  # "hickory-dns",
+], default-features = true }

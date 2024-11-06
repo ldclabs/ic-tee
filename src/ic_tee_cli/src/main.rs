@@ -85,8 +85,12 @@ pub enum Commands {
         kind: String,
 
         /// TEE attestation document
-        #[arg(long, default_value = "")]
-        doc: String,
+        #[arg(long)]
+        doc: Option<String>,
+
+        /// TEE attestation document url
+        #[arg(long)]
+        url: Option<String>,
     },
     /// get a setting from the COSE canister
     SettingGet {
@@ -187,8 +191,16 @@ async fn main() -> Result<()> {
             println!("principal: {}", principal);
         }
 
-        Some(Commands::TeeVerify { doc, kind }) => {
-            let doc = decode_hex(doc)?;
+        Some(Commands::TeeVerify { kind, doc, url }) => {
+            let doc = match (doc, url) {
+                (Some(doc), None) => doc.to_owned(),
+                (None, Some(url)) => {
+                    let body = reqwest::get(url).await?.text().await?;
+                    body
+                }
+                _ => Err(anyhow::anyhow!("doc or url is required"))?,
+            };
+            let doc = decode_hex(&doc)?;
             let mut error: Option<String> = None;
             let doc = match parse_and_verify(&doc) {
                 Ok(doc) => doc,

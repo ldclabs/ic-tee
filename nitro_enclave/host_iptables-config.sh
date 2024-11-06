@@ -20,9 +20,11 @@
 # 如果想立即运行脚本测试
 # sudo service iptables-config start
 # 查看所有 NAT 规则
-# sudo iptables -t nat -L -n -v
+# sudo iptables -t nat -L -n -v  --line-number
 # 查看所有 filter 规则
 # sudo iptables -L -n -v
+# delete a rule by line number 7
+# sudo iptables -t nat -D PREROUTING 7
 #
 # sysctl.conf
 # echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf

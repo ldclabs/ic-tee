@@ -57,13 +57,13 @@ sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_e
 # {
 #   "Measurements": {
 #     "HashAlgorithm": "Sha384 { ... }",
-#     "PCR0": "1b2c6645b08d685dd673cb6271c81f26d668452bbcb63f5b6516745d6ef9401de9ed8e895218ab663a82f7bf2ebb63ad",
+#     "PCR0": "929c88889044592565f259bbae65baddcf0c426bc171017375777d55161bb662ac0fb97de301d8d6c1026b62b6061098",
 #     "PCR1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
-#     "PCR2": "50193d35e1e8ee7ce4fa169fafd951fd55d3382afa7cc8d253484a2c576fdd66ded2affdda334d4c9edda0d53d0683d8"
+#     "PCR2": "3f260bf23af9b00afe2b5c1debd0e26c987abf83378a0e5f99ae49cbdd711c020c1f23d84bc93ba184baddc842c6f21b"
 #   }
 # }
-ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 1b2c6645b08d685dd673cb6271c81f26d668452bbcb63f5b6516745d6ef9401de9ed8e895218ab663a82f7bf2ebb63ad
-# principal: 7phvc-jpig7-tqnlh-nkik5-le57d-reruv-kjkkp-ngegn-uafjd-3j4p5-7qe
+ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 929c88889044592565f259bbae65baddcf0c426bc171017375777d55161bb662ac0fb97de301d8d6c1026b62b6061098
+# principal: 6y5sx-apnmh-blpp5-u7eyr-nnl2t-rflnm-7sw2q-ptbx3-iv47r-rsnun-eqe
 
 dfx canister call ic_cose_canister setting_add_readers '(record {
   ns = "_";
@@ -71,14 +71,14 @@ dfx canister call ic_cose_canister setting_add_readers '(record {
   subject = opt principal "fbi6t-ogdrt-s4de4-sxive-x4yid-xfrk2-e6jgf-jbnuh-rzxoj-qv2qa-zae";
   version = 1;
   user_owned = false;
-}, vec{ principal "7phvc-jpig7-tqnlh-nkik5-le57d-reruv-kjkkp-ngegn-uafjd-3j4p5-7qe" })' --ic
+}, vec{ principal "6y5sx-apnmh-blpp5-u7eyr-nnl2t-rflnm-7sw2q-ptbx3-iv47r-rsnun-eqe" })' --ic
 
 sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-path ic_tee_nitro_gateway_enclave_amd64.eif
 # Start allocating memory...
 # Started enclave with enclave-cid: 88, memory: 512 MiB, cpu-ids: [1, 3]
 # {
 #   "EnclaveName": "ic_tee_nitro_gateway_enclave_amd64",
-#   "EnclaveID": "i-056e1ab9a31cd77a0-enc192fc732d6e4e41",
+#   "EnclaveID": "i-056e1ab9a31cd77a0-enc193037029f7f152",
 #   "ProcessID": 14424,
 #   "EnclaveCID": 88,
 #   "NumberOfCPUs": 2,
@@ -89,7 +89,7 @@ sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-pat
 #   "MemoryMiB": 512
 # }
 sudo nitro-cli describe-enclaves
-sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc193006607ea8974
+sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc193037029f7f152
 ```
 
 ## License
