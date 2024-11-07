@@ -1,9 +1,12 @@
 # IC-TEE
 🔐 Make Trusted Execution Environments (TEEs) work with the Internet Computer.
 
+![IC TEE](./ic_tee.webp)
+
 Relation project:
+- [IC TEE Host Daemon](https://github.com/ldclabs/ic-tee-host-daemon), a daemon running on the host machine of TEEs.
 - [IC-COSE](https://github.com/ldclabs/ic-cose), a decentralized COnfiguration service with Signing and Encryption on the Internet Computer.
-- [ic-tee-host-daemon](https://github.com/ldclabs/ic-tee-host-daemon), a daemon running on the host machine of TEEs.
+- [IC-OSS](https://github.com/ldclabs/ic-oss), a decentralized Object Storage Service on the Internet Computer.
 
 ## Libraries
 
@@ -16,7 +19,6 @@ Relation project:
 | [ic_tee_logtail](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_logtail)                     | A simple log tailing service for the TEE environment.                                                     |
 | [ic_tee_nitro_attestation](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_nitro_attestation) | A Rust library to process AWS Nitro enclave attestation.                                                  |
 | [ic_tee_nitro_gateway](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_nitro_gateway)         | A gateway service within an AWS Nitro enclave.                                                            |
-
 
 ## License
 Copyright © 2024 [LDC Labs](https://github.com/ldclabs).

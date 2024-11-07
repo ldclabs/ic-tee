@@ -1,7 +1,11 @@
 # `ic_tee_nitro_gateway`
 ## Overview
 
-`ic_tee_nitro_gateway` is a gateway service within an AWS Nitro enclave. It is launched inside the enclave through the ICP `ic_tee_identity` identity service and the IC-COSE configuration service, then forwards requests to the business application running in the enclave. The startup process is as follows:
+`ic_tee_nitro_gateway` is a gateway service within an AWS Nitro enclave. It is launched inside the enclave through the ICP `ic_tee_identity` identity service and the IC-COSE configuration service, then forwards requests to the business application running in the enclave.
+
+![IC TEE Bootstrap](./ic_tee_bootstrap.webp)
+
+The bootstrap process is as follows:
 
 1. **Generate attestation** for sign in, obtaining an identity via the ICP `ic_tee_identity` service to access other services on ICP. `ic_tee_identity` verifies the attestation and derives an identity, generating the same identity for identical enclave images.
 
@@ -14,6 +18,8 @@
 
 #### Run `ic_tee_host_daemon` on host machine
 
+![IC TEE Host Daemon](./ic_tee_host_daemon.webp)
+
 `ic_tee_host_daemon` is a daemon running on the host machine of an enclave, providing the following functions:
 
 1. Forwards requests from the enclave to the internet.
@@ -21,7 +27,7 @@
 3. Receives logs from the enclave and outputs them to stdout.
 
 ```bash
-sudo ./ic_tee_host_daemon
+sudo nohup ./ic_tee_host_daemon > tee.log 2>&1 &
 ```
 
 It may be necessary to clear the iptables rules.
@@ -56,7 +62,7 @@ sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_e
 # }
 ```
 
-Calculate the ICP principal from the PCR0.
+Derive the ICP principal from the PCR0.
 ```bash
 ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 929c88889044592565f259bbae65baddcf0c426bc171017375777d55161bb662ac0fb97de301d8d6c1026b62b6061098
 # principal: 6y5sx-apnmh-blpp5-u7eyr-nnl2t-rflnm-7sw2q-ptbx3-iv47r-rsnun-eqe
