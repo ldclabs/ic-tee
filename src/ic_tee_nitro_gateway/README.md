@@ -1,12 +1,13 @@
 # `ic_tee_nitro_gateway`
-![License](https://img.shields.io/crates/l/ic_tee_nitro_gateway.svg)
-[![Crates.io](https://img.shields.io/crates/d/ic_tee_nitro_gateway.svg)](https://crates.io/crates/ic_tee_nitro_gateway)
-[![Test](https://github.com/ldclabs/ic-tee/actions/workflows/test.yml/badge.svg)](https://github.com/ldclabs/ic-tee/actions/workflows/test.yml)
-[![Docs.rs](https://img.shields.io/docsrs/ic_tee_nitro_gateway?label=docs.rs)](https://docs.rs/ic_tee_nitro_gateway)
-[![Latest Version](https://img.shields.io/crates/v/ic_tee_nitro_gateway.svg)](https://crates.io/crates/ic_tee_nitro_gateway)
-
 ## Overview
-`ic_tee_nitro_gateway` is a gateway service in an AWS Nitro enclave.
+
+`ic_tee_nitro_gateway` is a gateway service within an AWS Nitro enclave. It is launched inside the enclave through the ICP `ic_tee_identity` identity service and the IC-COSE configuration service, then forwards requests to the business application running in the enclave. The startup process is as follows:
+
+1. **Generate attestation** for sign in, obtaining an identity via the ICP `ic_tee_identity` service to access other services on ICP. `ic_tee_identity` verifies the attestation and derives an identity, generating the same identity for identical enclave images.
+
+2. **Switch to a fixed identity** obtained from the IC-COSE configuration service to avoid identity changes due to application upgrades. This enables consistent operations with a stable identity.
+
+3. **Start the web service** using a TLS certificate obtained with the fixed identity from the IC-COSE configuration service. This web service receives requests and forwards them to the application running inside the enclave.
 
 ## Deploy
 ### Building and running AWS Nitro Enclave image
@@ -15,6 +16,7 @@
 
 https://docs.marlin.org/learn/oyster/core-concepts/networking/outgoing
 
+Forward all traffic from vsock 3 (port 1200 in the enclave) to the internet.
 ```bash
 wget -O vsock-to-ip-transparent http://public.artifacts.marlin.pro/projects/enclaves/vsock-to-ip-transparent_v1.0.0_linux_amd64
 chmod +x vsock-to-ip-transparent
@@ -23,18 +25,12 @@ chmod +x vsock-to-ip-transparent
 
 https://docs.marlin.org/learn/oyster/core-concepts/networking/incoming
 
-iptables rules:
+Add iptables rules on the host machine to forward traffic on 443 from the internet to 127.0.0.1:1200.
 ```bash
-# route local incoming packets on port 8080 to the transparent proxy
-iptables -t nat -A OUTPUT -p tcp --dport 8080 -o lo -j REDIRECT --to-port 1200
-iptables -t nat -A OUTPUT -p tcp --dport 8080 -d 127.0.0.1 -j REDIRECT --to-port 1200
-
-# route incoming packets on port 443 to the transparent proxy
-iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200
-# route incoming packets on port 1025:65535 to the transparent proxy
-# iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200
+sudo sh nitro_enclave/host_iptables-config.sh
 ```
 
+Forward all traffic from 127.0.0.1:1200 to vsock 88.
 ```bash
 wget -O port-to-vsock-transparent http://public.artifacts.marlin.pro/projects/enclaves/port-to-vsock-transparent_v1.0.0_linux_amd64
 chmod +x port-to-vsock-transparent
@@ -47,6 +43,7 @@ The following steps should be run in AWS Nitro-based instances.
 
 https://docs.aws.amazon.com/enclaves/latest/user/getting-started.html
 
+Build the enclave image.
 ```bash
 cargo install ic_tee_cli
 sudo docker pull ghcr.io/ldclabs/ic_tee_nitro_gateway_enclave_amd64:latest
@@ -62,9 +59,16 @@ sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_e
 #     "PCR2": "3f260bf23af9b00afe2b5c1debd0e26c987abf83378a0e5f99ae49cbdd711c020c1f23d84bc93ba184baddc842c6f21b"
 #   }
 # }
+```
+
+Calculate the ICP principal from the PCR0.
+```bash
 ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 929c88889044592565f259bbae65baddcf0c426bc171017375777d55161bb662ac0fb97de301d8d6c1026b62b6061098
 # principal: 6y5sx-apnmh-blpp5-u7eyr-nnl2t-rflnm-7sw2q-ptbx3-iv47r-rsnun-eqe
+```
 
+Add the principal to the permament identity setting on IC-COSE service, so that the enclave can load permament identity after sign in with the principal.
+```bash
 dfx canister call ic_cose_canister setting_add_readers '(record {
   ns = "_";
   key = blob "\69\64\5f\65\64\32\35\35\31\39";
@@ -72,7 +76,10 @@ dfx canister call ic_cose_canister setting_add_readers '(record {
   version = 1;
   user_owned = false;
 }, vec{ principal "6y5sx-apnmh-blpp5-u7eyr-nnl2t-rflnm-7sw2q-ptbx3-iv47r-rsnun-eqe" })' --ic
+```
 
+Run the enclave.
+```bash
 sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-path ic_tee_nitro_gateway_enclave_amd64.eif
 # Start allocating memory...
 # Started enclave with enclave-cid: 88, memory: 512 MiB, cpu-ids: [1, 3]
@@ -88,6 +95,9 @@ sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-pat
 #   ],
 #   "MemoryMiB": 512
 # }
+```
+
+```bash
 sudo nitro-cli describe-enclaves
 sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc193037029f7f152
 ```

@@ -1782,6 +1782,7 @@ dependencies = [
  "anyhow",
  "clap",
  "log",
+ "structured-logger",
  "tokio",
 ]
 

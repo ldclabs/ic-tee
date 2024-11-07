@@ -1,8 +1,4 @@
 # `ic_tee_cli`
-![License](https://img.shields.io/crates/l/ic_tee_cli.svg)
-[![Crates.io](https://img.shields.io/crates/d/ic_tee_cli.svg)](https://crates.io/crates/ic_tee_cli)
-[![Test](https://github.com/ldclabs/ic-tee/actions/workflows/test.yml/badge.svg)](https://github.com/ldclabs/ic-tee/actions/workflows/test.yml)
-[![Latest Version](https://img.shields.io/crates/v/ic_tee_cli.svg)](https://crates.io/crates/ic_tee_cli)
 
 `ic_tee_cli` is a command-line tool implemented in Rust for the `ic-tee`.
 

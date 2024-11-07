@@ -5,7 +5,7 @@
 [![Docs.rs](https://img.shields.io/docsrs/ic_tee_nitro_attestation?label=docs.rs)](https://docs.rs/ic_tee_nitro_attestation)
 [![Latest Version](https://img.shields.io/crates/v/ic_tee_nitro_attestation.svg)](https://crates.io/crates/ic_tee_nitro_attestation)
 
-`ic_tee_nitro_attestation` is a Rust library to process Nitro enclaves attestation.
+`ic_tee_nitro_attestation` is a Rust library to process AWS Nitro enclave attestation.
 
 ## License
 Copyright © 2024 [LDC Labs](https://github.com/ldclabs).
