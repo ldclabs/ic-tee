@@ -55,17 +55,17 @@ sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_e
 # {
 #   "Measurements": {
 #     "HashAlgorithm": "Sha384 { ... }",
-#     "PCR0": "929c88889044592565f259bbae65baddcf0c426bc171017375777d55161bb662ac0fb97de301d8d6c1026b62b6061098",
+#     "PCR0": "5007e8a48419d8d7117591c6a3dec4e2a99e4cf8776ce492b38a516205e55cfde271964280a9af676f8c3465a6579955",
 #     "PCR1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
-#     "PCR2": "3f260bf23af9b00afe2b5c1debd0e26c987abf83378a0e5f99ae49cbdd711c020c1f23d84bc93ba184baddc842c6f21b"
+#     "PCR2": "ed2ca28963f4967b791ac8ef5967c8c15075e33fb9bca0904ba1e0b53bd97b0105ac87c89a110ceea7b7a466a54c3841"
 #   }
 # }
 ```
 
 Derive the ICP principal from the PCR0.
 ```bash
-ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 929c88889044592565f259bbae65baddcf0c426bc171017375777d55161bb662ac0fb97de301d8d6c1026b62b6061098
-# principal: 6y5sx-apnmh-blpp5-u7eyr-nnl2t-rflnm-7sw2q-ptbx3-iv47r-rsnun-eqe
+ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 5007e8a48419d8d7117591c6a3dec4e2a99e4cf8776ce492b38a516205e55cfde271964280a9af676f8c3465a6579955
+# principal: fqq6k-lqgif-epz3k-ob4gn-gb2ka-f2hrg-lhhet-lmxk5-yy62z-qkloq-2qe
 ```
 
 Add the principal to the permament identity setting on IC-COSE service, so that the enclave can load permament identity after sign in with the principal.
@@ -76,19 +76,19 @@ dfx canister call ic_cose_canister setting_add_readers '(record {
   subject = opt principal "fbi6t-ogdrt-s4de4-sxive-x4yid-xfrk2-e6jgf-jbnuh-rzxoj-qv2qa-zae";
   version = 1;
   user_owned = false;
-}, vec{ principal "6y5sx-apnmh-blpp5-u7eyr-nnl2t-rflnm-7sw2q-ptbx3-iv47r-rsnun-eqe" })' --ic
+}, vec{ principal "fqq6k-lqgif-epz3k-ob4gn-gb2ka-f2hrg-lhhet-lmxk5-yy62z-qkloq-2qe" })' --ic
 ```
 
 Run the enclave.
 ```bash
-sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-path ic_tee_nitro_gateway_enclave_amd64.eif
+sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 8 --eif-path ic_tee_nitro_gateway_enclave_amd64.eif
 # Start allocating memory...
 # Started enclave with enclave-cid: 88, memory: 512 MiB, cpu-ids: [1, 3]
 # {
 #   "EnclaveName": "ic_tee_nitro_gateway_enclave_amd64",
-#   "EnclaveID": "i-056e1ab9a31cd77a0-enc193037029f7f152",
-#   "ProcessID": 14424,
-#   "EnclaveCID": 88,
+#   "EnclaveID": "i-056e1ab9a31cd77a0-enc19306ae0f2d054b",
+#   "ProcessID": 18178,
+#   "EnclaveCID": 8,
 #   "NumberOfCPUs": 2,
 #   "CPUIDs": [
 #     1,
