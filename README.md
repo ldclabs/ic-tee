@@ -1,7 +1,9 @@
 # IC-TEE
 🔐 Make Trusted Execution Environments (TEEs) work with the Internet Computer.
 
-Relation project: [IC-COSE](https://github.com/ldclabs/ic-cose), a decentralized COnfiguration service with Signing and Encryption on the Internet Computer.
+Relation project:
+- [IC-COSE](https://github.com/ldclabs/ic-cose), a decentralized COnfiguration service with Signing and Encryption on the Internet Computer.
+- [ic-tee-host-daemon](https://github.com/ldclabs/ic-tee-host-daemon), a daemon running on the host machine of TEEs.
 
 ## Libraries
 

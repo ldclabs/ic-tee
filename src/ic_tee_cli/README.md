@@ -9,6 +9,9 @@ Install:
 cargo install ic_tee_cli
 # get help info
 ic_tee_cli --help
+
+# verify a TEE attestation from url
+ic_tee_cli tee-verify --url https://tee-demo.panda.fans/.well-known/attestation
 ```
 
 ## License

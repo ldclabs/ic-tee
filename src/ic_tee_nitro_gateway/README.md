@@ -12,30 +12,25 @@
 ## Deploy
 ### Building and running AWS Nitro Enclave image
 
-#### Setup host machine
+#### Run `ic_tee_host_daemon` on host machine
 
-https://docs.marlin.org/learn/oyster/core-concepts/networking/outgoing
+`ic_tee_host_daemon` is a daemon running on the host machine of an enclave, providing the following functions:
 
-Forward all traffic from vsock 3 (port 1200 in the enclave) to the internet.
+1. Forwards requests from the enclave to the internet.
+2. Listens for requests from the internet and forwards them to the enclave.
+3. Receives logs from the enclave and outputs them to stdout.
+
 ```bash
-wget -O vsock-to-ip-transparent http://public.artifacts.marlin.pro/projects/enclaves/vsock-to-ip-transparent_v1.0.0_linux_amd64
-chmod +x vsock-to-ip-transparent
-./vsock-to-ip-transparent --vsock-addr 3:1200
+sudo ./ic_tee_host_daemon
 ```
 
-https://docs.marlin.org/learn/oyster/core-concepts/networking/incoming
-
-Add iptables rules on the host machine to forward traffic on 443 from the internet to 127.0.0.1:1200.
+It may be necessary to clear the iptables rules.
 ```bash
-sudo sh nitro_enclave/host_iptables-config.sh
+iptables -F
+iptables -t nat -F
 ```
 
-Forward all traffic from 127.0.0.1:1200 to vsock 88.
-```bash
-wget -O port-to-vsock-transparent http://public.artifacts.marlin.pro/projects/enclaves/port-to-vsock-transparent_v1.0.0_linux_amd64
-chmod +x port-to-vsock-transparent
-./port-to-vsock-transparent --vsock 88 --ip-addr 127.0.0.1:1200
-```
+Detail: https://github.com/ldclabs/ic-tee-host-daemon
 
 #### Build and run enclave
 
@@ -97,6 +92,7 @@ sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 88 --eif-pat
 # }
 ```
 
+Stop the enclave.
 ```bash
 sudo nitro-cli describe-enclaves
 sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc193037029f7f152
