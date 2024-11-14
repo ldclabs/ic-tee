@@ -3,6 +3,7 @@ members = [
   "src/ic_tee_agent",
   "src/ic_tee_cdk",
   "src/ic_tee_cli",
+  "src/ic_tee_host_daemon",
   "src/ic_tee_identity",
   "src/ic_tee_logtail",
   "src/ic_tee_nitro_attestation",
@@ -41,6 +42,7 @@ clap = { version = "4.5", features = ["derive"] }
 candid = "0.10"
 ciborium = "0.2"
 const-hex = "1"
+futures = "0.3"
 lazy_static = "1.5"
 serde = "1"
 serde_json = "1"
@@ -54,17 +56,18 @@ ic-certification = "2.6"
 ic-agent = "0.39"
 ic_cose_types = "0.3"
 getrandom = { version = "0.2", features = ["custom"] }
-coset = "0.3.8"
-x509-parser = { version = "0.16.0" }
+coset = "0.3"
+x509-parser = { version = "0.16" }
 ed25519-consensus = "2.1"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 rand = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
+tokio-vsock = "0.6"
 aws-nitro-enclaves-nsm-api = "0.4"
 log = "0.4"
 structured-logger = "1"
-hyper-util = { version = "0.1.10", features = ["client-legacy"] }
+hyper-util = { version = "0.1", features = ["client-legacy"] }
 mime = "0.3"
 rustls = "0.23"
 reqwest = { version = "0.12", features = [
@@ -76,3 +79,4 @@ reqwest = { version = "0.12", features = [
   "http2",
   # "hickory-dns",
 ], default-features = true }
+libc = "0.2"

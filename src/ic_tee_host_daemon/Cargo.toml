@@ -1,0 +1,26 @@
+[package]
+name = "ic_tee_host_daemon"
+description = "A daemon running on the host machine of TEEs."
+repository = "https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_host_daemon"
+version.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+
+[dependencies]
+futures = { workspace = true }
+tokio = { workspace = true }
+tokio-vsock = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+structured-logger = { workspace = true }
+libc = { workspace = true }
+
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
+codegen-units = 1
+opt-level = 's'

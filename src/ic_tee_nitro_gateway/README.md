@@ -18,7 +18,7 @@ The bootstrap process is as follows:
 
 #### Run `ic_tee_host_daemon` on host machine
 
-![IC TEE Host Daemon](./ic_tee_host_daemon.webp)
+![IC TEE Host Daemon](./../ic_tee_host_daemon/ic_tee_host_daemon.webp)
 
 `ic_tee_host_daemon` is a daemon running on the host machine of an enclave, providing the following functions:
 
@@ -46,7 +46,6 @@ https://docs.aws.amazon.com/enclaves/latest/user/getting-started.html
 
 Build the enclave image.
 ```bash
-cargo install ic_tee_cli
 sudo docker pull ghcr.io/ldclabs/ic_tee_nitro_gateway_enclave_amd64:latest
 sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_enclave_amd64:latest --output-file ic_tee_nitro_gateway_enclave_amd64.eif
 # Start building the Enclave Image...
@@ -64,6 +63,7 @@ sudo nitro-cli build-enclave --docker-uri ghcr.io/ldclabs/ic_tee_nitro_gateway_e
 
 Derive the ICP principal from the PCR0.
 ```bash
+cargo install ic_tee_cli
 ic_tee_cli -c e7tgb-6aaaa-aaaap-akqfa-cai identity-derive --seed 5007e8a48419d8d7117591c6a3dec4e2a99e4cf8776ce492b38a516205e55cfde271964280a9af676f8c3465a6579955
 # principal: fqq6k-lqgif-epz3k-ob4gn-gb2ka-f2hrg-lhhet-lmxk5-yy62z-qkloq-2qe
 ```
@@ -101,7 +101,7 @@ sudo nitro-cli run-enclave --cpu-count 2 --memory 512 --enclave-cid 8 --eif-path
 Stop the enclave.
 ```bash
 sudo nitro-cli describe-enclaves
-sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc193037029f7f152
+sudo nitro-cli terminate-enclave --enclave-id i-056e1ab9a31cd77a0-enc19306ae0f2d054b
 ```
 
 ## License

@@ -33,8 +33,8 @@ RUN wget -O vsock-to-ip http://public.artifacts.marlin.pro/projects/enclaves/vso
 RUN chmod +x vsock-to-ip
 
 # dnsproxy to provide DNS services inside the enclave
-RUN wget -O dnsproxy http://public.artifacts.marlin.pro/projects/enclaves/dnsproxy_v0.72.0_linux_arm64
-RUN chmod +x dnsproxy
+RUN wget -qO- https://github.com/AdguardTeam/dnsproxy/releases/download/v0.73.3/dnsproxy-linux-arm64-v0.73.3.tar.gz | tar xvz
+RUN mv linux-arm64/dnsproxy ./ && chmod +x dnsproxy
 
 # supervisord config
 COPY nitro_enclave/supervisord.conf /etc/supervisord.conf

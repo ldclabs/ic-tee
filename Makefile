@@ -10,7 +10,7 @@ fix:
 	@cargo clippy --fix --workspace --tests
 
 test:
-	@cargo test --workspace -- --nocapture
+	@AWS_LC_SYS_NO_ASM=1 cargo test --workspace -- --nocapture
 
 # cargo install ic-wasm
 build-wasm:
