@@ -17,10 +17,3 @@ clap = { workspace = true }
 log = { workspace = true }
 structured-logger = { workspace = true }
 libc = { workspace = true }
-
-[profile.release]
-strip = true
-lto = true
-panic = "abort"
-codegen-units = 1
-opt-level = 's'

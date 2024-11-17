@@ -195,8 +195,8 @@ async fn main() -> Result<()> {
             let doc = match (doc, url) {
                 (Some(doc), None) => doc.to_owned(),
                 (None, Some(url)) => {
-                    let body = reqwest::get(url).await?.text().await?;
-                    body
+                    
+                    reqwest::get(url).await?.text().await?
                 }
                 _ => Err(anyhow::anyhow!("doc or url is required"))?,
             };

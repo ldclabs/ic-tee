@@ -6,7 +6,7 @@ use clap::Parser;
 use ic_cose_types::types::SettingPath;
 use ic_tee_agent::{
     agent::TEEAgent,
-    identity::identity_from,
+    identity::{identity_from, TEEIdentity},
     setting::{decrypt_payload, decrypt_tls},
 };
 use ic_tee_cdk::{to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInformation};
@@ -109,13 +109,16 @@ async fn serve(cli: Cli) -> Result<()> {
 
     let namespace = cli.configuration_namespace;
     let session_expires_in_ms = cli.session_expires_in_ms.unwrap_or(24 * 60 * 60 * 1000);
-    let public_key = tee_agent.session_key().await;
     let id_scope = cli.id_scope.unwrap_or("image".to_string());
     let user_req = AttestationUserRequest {
         method: "sign_in".to_string(),
         params: Some(SignInParams { id_scope }),
     };
+
     let user_req = to_cbor_bytes(&user_req);
+    let session_key = TEEIdentity::new_session();
+    let public_key = session_key.1.clone();
+
     let doc = sign_attestation(AttestationRequest {
         public_key: Some(public_key.into()),
         user_data: Some(user_req.clone().into()),
@@ -129,7 +132,7 @@ async fn serve(cli: Cli) -> Result<()> {
        "parse_and_verify attestation for sign in, module_id: {:?}", attestation.module_id);
 
     tee_agent
-        .sign_in(TEE_KIND.to_string(), doc.into())
+        .sign_in_with(session_key, || Ok((TEE_KIND.to_string(), doc.into())))
         .await
         .map_err(anyhow::Error::msg)?;
 
@@ -176,9 +179,7 @@ async fn serve(cli: Cli) -> Result<()> {
             anyhow::anyhow!("invalid secret, expected 32 bytes, got {}", val.len())
         })?;
         let id = identity_from(ed25519_secret);
-        tee_agent
-            .upgrade_identity_with(&id, session_expires_in_ms)
-            .await;
+        tee_agent.upgrade_identity(&id, session_expires_in_ms).await;
 
         log::info!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
@@ -229,14 +230,14 @@ async fn serve(cli: Cli) -> Result<()> {
 
             match upgrade_identity {
                 Some(ref id) => {
-                    tee_agent
-                        .upgrade_identity_with(id, session_expires_in_ms)
-                        .await;
+                    tee_agent.upgrade_identity(id, session_expires_in_ms).await;
                 }
                 None => {
                     // ignore error
+                    let session_key = TEEIdentity::new_session();
+                    let public_key = session_key.1.clone();
                     let _ = tee_agent
-                        .sign_in_with(|public_key| {
+                        .sign_in_with(session_key, || {
                             let doc = sign_attestation(AttestationRequest {
                                 public_key: Some(public_key.into()),
                                 user_data: Some(user_req.clone().into()),

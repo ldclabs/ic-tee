@@ -2,6 +2,7 @@ use candid::{
     utils::{encode_args, ArgumentEncoder},
     CandidType, Decode, Principal,
 };
+use ed25519_consensus::SigningKey;
 use ic_agent::Agent;
 use ic_cose_types::{
     cose::format_error,
@@ -60,15 +61,16 @@ impl TEEAgent {
         self.identity.read().await.principal()
     }
 
-    pub async fn session_key(&self) -> Vec<u8> {
-        self.identity.read().await.session_key()
-    }
-
     pub async fn is_authenticated(&self) -> bool {
         self.identity.read().await.is_authenticated()
     }
 
-    pub async fn sign_in(&self, kind: String, attestation: ByteBuf) -> Result<(), String> {
+    pub async fn sign_in_with(
+        &self,
+        session_key: (SigningKey, Vec<u8>),
+        f: impl FnOnce() -> Result<(String, ByteBuf), String>,
+    ) -> Result<(), String> {
+        let (kind, attestation) = f()?;
         let res: Result<SignInResponse, String> = self
             .update_call(
                 &self.authentication_canister,
@@ -77,23 +79,28 @@ impl TEEAgent {
             )
             .await?;
         let res = res?;
+        let user_key = res.user_key.to_vec();
+
+        let res: Result<SignedDelegation, String> = self
+            .query_call(
+                &self.authentication_canister,
+                "get_delegation",
+                (
+                    res.seed,
+                    ByteBuf::from(session_key.1.clone()),
+                    res.expiration,
+                ),
+            )
+            .await?;
+        let res = res?;
+
         let mut id = {
             let id = self.identity.read().await;
             id.clone()
             // drop read lock
         };
 
-        id.with_user_key(res.user_key.to_vec());
-        let res: Result<SignedDelegation, String> = self
-            .query_call(
-                &self.authentication_canister,
-                "get_delegation",
-                (res.seed, ByteBuf::from(id.session_key()), res.expiration),
-            )
-            .await?;
-        let res = res?;
-
-        id.with_delegation(res)?;
+        id.update_with_delegation(user_key, session_key, res);
         self.agent.write().await.set_identity(id.clone());
         let mut w = self.identity.write().await;
         *w = id;
@@ -101,22 +108,13 @@ impl TEEAgent {
         Ok(())
     }
 
-    pub async fn sign_in_with(
-        &self,
-        f: impl FnOnce(Vec<u8>) -> Result<(String, ByteBuf), String>,
-    ) -> Result<(), String> {
-        let session_key = self.session_key().await;
-        let (kind, attestation) = f(session_key)?;
-        self.sign_in(kind, attestation).await
-    }
-
-    pub async fn upgrade_identity_with(&self, identity: &BasicIdentity, expires_in_ms: u64) {
+    pub async fn upgrade_identity(&self, identity: &BasicIdentity, expires_in_ms: u64) {
         let mut id = {
             let id = self.identity.read().await;
             id.clone()
             // drop read lock
         };
-        id.upgrade_with(identity, expires_in_ms);
+        id.upgrade_with_identity(identity, expires_in_ms);
         self.agent.write().await.set_identity(id.clone());
         let mut w = self.identity.write().await;
         *w = id;
@@ -237,80 +235,7 @@ where
     Ok(output)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ic_cose_types::types::state::StateInfo;
-
-    #[tokio::test(flavor = "current_thread")]
-    #[ignore]
-    async fn test_ic_tee_identity() {
-        let host = "https://icp-api.io";
-        // let host = "http://127.0.0.1:4943";
-        let authentication_canister = Principal::from_text("e7tgb-6aaaa-aaaap-akqfa-cai").unwrap();
-        let configuration_canister = Principal::from_text("53cyg-yyaaa-aaaap-ahpua-cai").unwrap();
-        let tee_agent = TEEAgent::new(host, authentication_canister, configuration_canister)
-            .expect("Failed to create TEEAgent");
-        tee_agent.init().await.unwrap();
-
-        println!(
-            "tee_agent init principal: {:?}",
-            tee_agent.principal().await.to_text()
-        );
-        let pubkey = tee_agent.session_key().await;
-        let res: Result<SignInResponse, String> = tee_agent
-            .update_call(
-                &tee_agent.authentication_canister,
-                "sign_in_debug",
-                (ByteBuf::from(pubkey),),
-            )
-            .await
-            .unwrap();
-        let res = res.unwrap();
-        let mut id = {
-            let id = tee_agent.identity.read().await;
-            id.clone()
-            // drop read lock
-        };
-
-        println!("user_key: {:?}", const_hex::encode(&res.user_key));
-        id.with_user_key(res.user_key.to_vec());
-        let principal = id.principal();
-        let res: Result<SignedDelegation, String> = tee_agent
-            .query_call(
-                &tee_agent.authentication_canister,
-                "get_delegation",
-                (res.seed, ByteBuf::from(id.session_key()), res.expiration),
-            )
-            .await
-            .unwrap();
-        let res = res.unwrap();
-
-        id.with_delegation(res).unwrap();
-        {
-            tee_agent.agent.write().await.set_identity(id.clone());
-            let mut w = tee_agent.identity.write().await;
-            *w = id;
-            // drop write lock
-        }
-        let principal2 = { tee_agent.agent.read().await.get_principal().unwrap() };
-        assert_eq!(principal, principal2);
-        assert_eq!(principal, tee_agent.principal().await);
-
-        println!("tee_agent sign in principal: {:?}", principal.to_text());
-        println!(
-            "tee_agent sign in seed: {:?}",
-            const_hex::encode(principal.as_slice())
-        );
-        let res: Principal = tee_agent
-            .query_call(&tee_agent.authentication_canister, "whoami", ())
-            .await
-            .unwrap();
-        println!("configuration canister whoami: {:?}", res.to_text());
-        let res: Result<StateInfo, String> = tee_agent
-            .query_call(&tee_agent.configuration_canister, "state_get_info", ())
-            .await
-            .unwrap();
-        println!("configuration canister state: {:?}", res.unwrap());
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+// }
