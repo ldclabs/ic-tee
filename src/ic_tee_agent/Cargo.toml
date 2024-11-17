@@ -10,6 +10,8 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.1" }
+base64 = { workspace = true }
 candid = { workspace = true }
 ed25519-consensus = { workspace = true }
 x25519-dalek = { workspace = true }
@@ -23,8 +25,12 @@ tokio = { workspace = true }
 axum = { workspace = true }
 bytes = { workspace = true }
 mime = { workspace = true }
+thiserror = { workspace = true }
+lazy_static = { workspace = true }
 ic_cose_types = { workspace = true }
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.1" }
+ic-types = { workspace = true }
+ic-canister-sig-creation = { workspace = true }
+ic-crypto-standalone-sig-verifier = { workspace = true }
 
 [dev-dependencies]
 const-hex = { workspace = true }

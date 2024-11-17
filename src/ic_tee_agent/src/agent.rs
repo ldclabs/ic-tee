@@ -57,8 +57,8 @@ impl TEEAgent {
         Ok(())
     }
 
-    pub async fn principal(&self) -> Principal {
-        self.identity.read().await.principal()
+    pub async fn get_principal(&self) -> Principal {
+        self.identity.read().await.get_principal()
     }
 
     pub async fn is_authenticated(&self) -> bool {

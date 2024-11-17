@@ -14,31 +14,31 @@ use serde::{de::DeserializeOwned, Serialize};
 pub static CONTENT_TYPE_CBOR: &str = "application/cbor";
 pub static CONTENT_TYPE_JSON: &str = "application/json";
 pub static CONTENT_TYPE_TEXT: &str = "text/plain";
-pub enum ContentType<T> {
+pub enum Content<T> {
     JSON(T, Option<StatusCode>),
     CBOR(T, Option<StatusCode>),
     Text(String, Option<StatusCode>),
     Ohter(String, Option<StatusCode>),
 }
 
-impl ContentType<()> {
+impl Content<()> {
     pub fn from(headers: &HeaderMap<HeaderValue>) -> Self {
         if let Some(accept) = headers.get(header::ACCEPT) {
             if let Ok(accept) = accept.to_str() {
                 if accept.contains(CONTENT_TYPE_CBOR) {
-                    return ContentType::CBOR((), None);
+                    return Content::CBOR((), None);
                 }
                 if accept.contains(CONTENT_TYPE_JSON) {
-                    return ContentType::JSON((), None);
+                    return Content::JSON((), None);
                 }
                 if accept.contains(CONTENT_TYPE_TEXT) {
-                    return ContentType::Text("".to_string(), None);
+                    return Content::Text("".to_string(), None);
                 }
-                return ContentType::Ohter(accept.to_string(), None);
+                return Content::Ohter(accept.to_string(), None);
             }
         }
 
-        ContentType::Ohter("unknown".to_string(), None)
+        Content::Ohter("unknown".to_string(), None)
     }
 
     pub fn from_content_type(headers: &HeaderMap) -> Self {
@@ -49,23 +49,23 @@ impl ContentType<()> {
                         if mime.subtype() == "cbor"
                             || mime.suffix().map_or(false, |name| name == "cbor")
                         {
-                            return ContentType::CBOR((), None);
+                            return Content::CBOR((), None);
                         } else if mime.subtype() == "json"
                             || mime.suffix().map_or(false, |name| name == "json")
                         {
-                            return ContentType::JSON((), None);
+                            return Content::JSON((), None);
                         }
                     }
                 }
             }
         }
 
-        ContentType::Ohter("unknown".to_string(), None)
+        Content::Ohter("unknown".to_string(), None)
     }
 }
 
 #[async_trait]
-impl<T, S> FromRequest<S> for ContentType<T>
+impl<T, S> FromRequest<S> for Content<T>
 where
     T: DeserializeOwned + Send + Sync,
     Bytes: FromRequest<S>,
@@ -74,23 +74,23 @@ where
     type Rejection = Response;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        match ContentType::from_content_type(req.headers()) {
-            ContentType::JSON(_, _) => {
+        match Content::from_content_type(req.headers()) {
+            Content::JSON(_, _) => {
                 let body = Bytes::from_request(req, state)
                     .await
                     .map_err(IntoResponse::into_response)?;
                 let value: T = serde_json::from_slice(&body).map_err(|err| {
-                    ContentType::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
+                    Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
                         .into_response()
                 })?;
                 Ok(Self::JSON(value, None))
             }
-            ContentType::CBOR(_, _) => {
+            Content::CBOR(_, _) => {
                 let body = Bytes::from_request(req, state)
                     .await
                     .map_err(IntoResponse::into_response)?;
                 let value: T = ciborium::from_reader(&body[..]).map_err(|err| {
-                    ContentType::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
+                    Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
                         .into_response()
                 })?;
                 Ok(Self::CBOR(value, None))
@@ -100,14 +100,14 @@ where
     }
 }
 
-impl<T> IntoResponse for ContentType<T>
+impl<T> IntoResponse for Content<T>
 where
     T: Serialize,
 {
     fn into_response(self) -> Response {
         let mut buf = BytesMut::with_capacity(128).writer();
         match self {
-            ContentType::JSON(v, c) => match serde_json::to_writer(&mut buf, &v) {
+            Self::JSON(v, c) => match serde_json::to_writer(&mut buf, &v) {
                 Ok(()) => (
                     c.unwrap_or_default(),
                     [(
@@ -127,7 +127,7 @@ where
                 )
                     .into_response(),
             },
-            ContentType::CBOR(v, c) => match ciborium::into_writer(&v, &mut buf) {
+            Self::CBOR(v, c) => match ciborium::into_writer(&v, &mut buf) {
                 Ok(()) => (
                     c.unwrap_or_default(),
                     [(
@@ -147,7 +147,7 @@ where
                 )
                     .into_response(),
             },
-            ContentType::Text(v, c) => (
+            Self::Text(v, c) => (
                 c.unwrap_or_default(),
                 [(
                     header::CONTENT_TYPE,
@@ -156,7 +156,7 @@ where
                 v,
             )
                 .into_response(),
-            ContentType::Ohter(v, c) => (
+            Self::Ohter(v, c) => (
                 c.unwrap_or(StatusCode::UNSUPPORTED_MEDIA_TYPE),
                 [(
                     header::CONTENT_TYPE,

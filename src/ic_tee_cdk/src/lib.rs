@@ -29,6 +29,7 @@ pub struct AttestationUserRequest<T> {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TEEAppInformation {
+    pub id: Principal,
     pub name: String,
     pub version: String,
     pub kind: String,
@@ -36,14 +37,15 @@ pub struct TEEAppInformation {
     pub pcr1: ByteBuf,
     pub pcr2: ByteBuf,
     pub start_time_ms: u64,
-    pub principal: Principal,
     pub authentication_canister: Principal,
     pub configuration_canister: Principal,
     pub registration_canister: Option<Principal>,
+    pub caller: Principal,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TEEAppInformationJSON {
+    pub id: String,
     pub name: String,
     pub version: String,
     pub kind: String,
@@ -51,10 +53,10 @@ pub struct TEEAppInformationJSON {
     pub pcr1: String,
     pub pcr2: String,
     pub start_time_ms: u64,
-    pub principal: String,
     pub authentication_canister: String,
     pub configuration_canister: String,
     pub registration_canister: Option<String>,
+    pub caller: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

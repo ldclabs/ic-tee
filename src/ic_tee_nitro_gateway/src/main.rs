@@ -138,7 +138,7 @@ async fn serve(cli: Cli) -> Result<()> {
 
     log::info!(target: "bootstrap",
         elapsed = start.elapsed().as_millis() as u64;
-       "sign_in, principal: {:?}", tee_agent.principal().await.to_text());
+       "sign_in, principal: {:?}", tee_agent.get_principal().await.to_text());
 
     let upgrade_identity =
         if let Some(v) = cli.configuration_upgrade_identity {
@@ -183,14 +183,15 @@ async fn serve(cli: Cli) -> Result<()> {
 
         log::info!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
-            "upgrade_identity, principal: {:?}", tee_agent.principal().await.to_text());
+            "upgrade_identity, principal: {:?}", tee_agent.get_principal().await.to_text());
         Some(id)
     } else {
         None
     };
 
-    let principal = tee_agent.principal().await;
+    let principal = tee_agent.get_principal().await;
     let info = TEEAppInformation {
+        id: principal,
         name: APP_NAME.to_string(),
         version: APP_VERSION.to_string(),
         kind: TEE_KIND.to_string(),
@@ -198,10 +199,10 @@ async fn serve(cli: Cli) -> Result<()> {
         pcr1: attestation.pcrs.get(&1).cloned().unwrap(),
         pcr2: attestation.pcrs.get(&2).cloned().unwrap(),
         start_time_ms: unix_ms(),
-        principal,
         authentication_canister,
         configuration_canister,
         registration_canister: None,
+        caller: Principal::anonymous(),
     };
 
     log::info!(target: "bootstrap",

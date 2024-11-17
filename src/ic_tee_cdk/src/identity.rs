@@ -4,25 +4,25 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use sha3::{Digest, Sha3_256};
 
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Delegation {
     pub pubkey: ByteBuf,
     pub expiration: u64,
     pub targets: Option<Vec<Principal>>,
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct SignedDelegation {
     pub delegation: Delegation,
     pub signature: ByteBuf,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct SignInParams {
     pub id_scope: String, // should be "image" or "enclave"
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct SignInResponse {
     /// The session expiration time in nanoseconds since the UNIX epoch. This is the time at which
     /// the delegation will no longer be valid.

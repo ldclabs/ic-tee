@@ -84,7 +84,7 @@ impl TEEIdentity {
         }
     }
 
-    pub fn principal(&self) -> Principal {
+    pub fn get_principal(&self) -> Principal {
         self.principal
     }
 

@@ -18,6 +18,8 @@ const-hex = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 candid = { workspace = true }
+serde = { workspace = true }
+serde_bytes = { workspace = true }
 aws-nitro-enclaves-nsm-api = { workspace = true }
 log = { workspace = true }
 structured-logger = { workspace = true }

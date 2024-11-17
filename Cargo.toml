@@ -38,6 +38,7 @@ axum = { version = "0.7", features = [
 ], default-features = true }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 bytes = "1"
+base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
 candid = "0.10"
 ciborium = "0.2"
@@ -80,3 +81,6 @@ reqwest = { version = "0.12", features = [
   # "hickory-dns",
 ], default-features = true }
 libc = "0.2"
+thiserror = "2"
+ic-types = { git = "https://github.com/dfinity/ic/", rev = "d19fa446ab35780b2c6d8b82ea32d808cca558d5" }
+ic-crypto-standalone-sig-verifier = { git = "https://github.com/dfinity/ic/", rev = "d19fa446ab35780b2c6d8b82ea32d808cca558d5" }
