@@ -45,7 +45,7 @@ struct Cli {
     #[clap(long, value_parser)]
     session_expires_in_ms: Option<u64>,
 
-    // id_scope should be "image" or "enclave", default is "image"
+    // id_scope should be "image" or "instance", default is "image"
     #[clap(long, value_parser)]
     id_scope: Option<String>,
 
@@ -117,12 +117,13 @@ async fn serve(cli: Cli) -> Result<()> {
 
     let user_req = to_cbor_bytes(&user_req);
     let session_key = TEEIdentity::new_session();
-    let public_key = session_key.1.clone();
+    let public_key = session_key.1.clone(); // der encoded public key
+    let sig = session_key.0.sign(&user_req);
 
     let doc = sign_attestation(AttestationRequest {
         public_key: Some(public_key.into()),
         user_data: Some(user_req.clone().into()),
-        nonce: None,
+        nonce: Some(sig.to_bytes().to_vec().into()), // use signature as nonce for challenge
     })
     .map_err(anyhow::Error::msg)?;
 

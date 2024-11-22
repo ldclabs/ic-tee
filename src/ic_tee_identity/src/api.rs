@@ -1,6 +1,9 @@
 use candid::Principal;
 use ciborium::from_reader;
 use ic_canister_sig_creation::delegation_signature_msg;
+use ic_crypto_standalone_sig_verifier::{
+    user_public_key_from_bytes, verify_basic_sig_by_public_key,
+};
 use ic_tee_cdk::{
     canister_user_key, AttestationUserRequest, Delegation, SignInParams, SignInResponse,
     SignedDelegation,
@@ -38,11 +41,25 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
     let pubkey: ByteBuf = attestation
         .public_key
         .ok_or_else(|| "missing public key".to_string())?;
+    let user_data: ByteBuf = attestation
+        .user_data
+        .ok_or_else(|| "missing user data".to_string())?;
+    let sig: ByteBuf = attestation
+        .nonce
+        .ok_or_else(|| "missing nonce".to_string())?;
 
-    let req: AttestationUserRequest<SignInParams> = attestation.user_data.map_or_else(
-        || Err("missing user data".to_string()),
-        |data| from_reader(data.as_slice()).map_err(|err| format!("invalid user data: {:?}", err)),
-    )?;
+    let (pk, _) = user_public_key_from_bytes(pubkey.as_slice())
+        .map_err(|err| format!("invalid public key: {:?}", err))?;
+    verify_basic_sig_by_public_key(
+        pk.algorithm_id,
+        user_data.as_slice(),
+        sig.as_slice(),
+        &pk.key,
+    )
+    .map_err(|err| format!("challenge verification failed: {:?}", err))?;
+
+    let req: AttestationUserRequest<SignInParams> =
+        from_reader(user_data.as_slice()).map_err(|err| format!("invalid user data: {:?}", err))?;
     if req.method != "sign_in" {
         return Err("invalid attestation user request method".to_string());
     }
@@ -51,7 +68,7 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
         Some(SignInParams { id_scope }) => {
             if id_scope == "image" {
                 canister_user_key(ic_cdk::id(), &kind, pcr0.as_slice(), None)
-            } else if id_scope == "enclave" {
+            } else if id_scope == "instance" {
                 canister_user_key(
                     ic_cdk::id(),
                     &kind,
