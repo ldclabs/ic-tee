@@ -9,7 +9,7 @@ COPY src ./src
 COPY Cargo.toml Cargo.lock ./
 RUN cargo build --release --locked -p ic_tee_nitro_gateway
 
-FROM gcr.io/distroless/cc-debian12:latest AS runtime
+FROM gcr.io/distroless/cc-debian12:debug AS runtime
 
 # working directory
 WORKDIR /app
