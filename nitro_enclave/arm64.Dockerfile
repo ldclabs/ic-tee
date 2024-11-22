@@ -1,5 +1,5 @@
 # base image
-FROM --platform=arm64 rust:slim-bookworm AS builder
+FROM --platform=linux/amd64 rust:slim-bookworm AS builder
 
 RUN apt-get update \
     && apt-get install -y gcc g++ libc6-dev pkg-config libssl-dev
@@ -9,13 +9,7 @@ COPY src ./src
 COPY Cargo.toml Cargo.lock ./
 RUN cargo build --release --locked -p ic_tee_nitro_gateway
 
-FROM debian:bookworm-slim AS runtime
-
-# install dependency tools
-RUN apt-get update \
-    && apt-get install -y net-tools iptables iproute2 wget ca-certificates tzdata curl openssl \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM --platform=linux/amd64 gcr.io/distroless/cc-debian12:latest AS runtime
 
 # working directory
 WORKDIR /app
