@@ -50,12 +50,12 @@ serde_json = "1"
 serde_bytes = "0.11"
 sha2 = "0.10"
 sha3 = "0.10"
-ic-cdk = "0.16"
+ic-cdk = "0.17"
 ic-stable-structures = "0.6"
 ic-canister-sig-creation = "1.1"
 ic-certification = "2.6"
 ic-agent = "0.39"
-ic_cose_types = "0.3"
+ic_cose_types = "0.4"
 getrandom = { version = "0.2", features = ["custom"] }
 coset = "0.3"
 x509-parser = { version = "0.16" }
@@ -82,5 +82,5 @@ reqwest = { version = "0.12", features = [
 ], default-features = true }
 libc = "0.2"
 thiserror = "2"
-ic-types = { git = "https://github.com/dfinity/ic/", rev = "d19fa446ab35780b2c6d8b82ea32d808cca558d5" }
-ic-crypto-standalone-sig-verifier = { git = "https://github.com/dfinity/ic/", rev = "d19fa446ab35780b2c6d8b82ea32d808cca558d5" }
+ic-types = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
+ic-crypto-standalone-sig-verifier = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
