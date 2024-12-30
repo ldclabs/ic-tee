@@ -23,6 +23,6 @@ anyhow = { workspace = true }
 clap = { version = "=4.5", features = ["derive"] }
 pkcs8 = { version = "0.10", features = ["pem"] }
 ed25519 = { version = "2.2", features = ["pem", "pkcs8"] }
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.1" }
-ic_tee_agent = { path = "../ic_tee_agent", version = "0.1" }
-ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.1" }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
+ic_tee_agent = { path = "../ic_tee_agent", version = "0.2" }
+ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.2" }

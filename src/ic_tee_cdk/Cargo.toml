@@ -18,3 +18,4 @@ sha3 = { workspace = true }
 ic-canister-sig-creation = { workspace = true }
 
 [dev-dependencies]
+const-hex = { workspace = true }

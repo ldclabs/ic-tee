@@ -10,7 +10,7 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.1" }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
 base64 = { workspace = true }
 candid = { workspace = true }
 ed25519-consensus = { workspace = true }

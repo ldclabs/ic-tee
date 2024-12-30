@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use sha3::{Digest, Sha3_256};
 
+use crate::to_cbor_bytes;
+
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Delegation {
     pub pubkey: ByteBuf,
@@ -35,24 +37,16 @@ pub struct SignInResponse {
 
 pub fn canister_user_key(
     canister: Principal,
-    kind: &str, // should be "Nitro"
+    kind: &str, // should be "NITRO"
     seed: &[u8],
     sub_seed: Option<&[u8]>,
 ) -> CanisterSigPublicKey {
-    let len = 1 + kind.len() + 32;
-    let mut data = Vec::with_capacity(len);
-    data.push(kind.len() as u8);
-    data.extend_from_slice(kind.to_uppercase().as_bytes());
-    data.resize(len, 0u8);
-
-    let mut hasher = Sha3_256::new();
-    hasher.update(seed);
-    if let Some(seed) = sub_seed {
-        hasher.update(seed);
-    }
-    let (_, buf) = data.split_last_chunk_mut::<32>().unwrap();
-    hasher.finalize_into(buf.into());
-    CanisterSigPublicKey::new(canister, data)
+    let seed = if let Some(sub_seed) = sub_seed {
+        to_cbor_bytes(&(kind, seed, sub_seed))
+    } else {
+        to_cbor_bytes(&(kind, seed))
+    };
+    CanisterSigPublicKey::new(canister, seed)
 }
 
 #[cfg(test)]
@@ -66,19 +60,18 @@ mod tests {
     #[test]
     fn test_canister_user_key() {
         let canister = Principal::from_text("e7tgb-6aaaa-aaaap-akqfa-cai").unwrap();
-        let kind = "Nitro";
-        let seed = [8u8; 48];
+        let kind = "NITRO";
+        let seed = [8u8; 32];
         let user_key = canister_user_key(canister, kind, &seed, None).to_der();
+        println!("{:?}", const_hex::encode(user_key.as_slice()));
         assert!(is_sub(&user_key, canister.as_slice()));
-        assert!(is_sub(&user_key, kind.to_uppercase().as_bytes()));
-        assert!(!is_sub(&user_key, seed.as_slice()));
+        assert!(is_sub(&user_key, kind.as_bytes()));
+        assert!(is_sub(&user_key, seed.as_slice()));
 
-        let user_key2 =
-            canister_user_key(canister, kind, &seed, Some(&[1u8, 2u8, 3u8, 4u8])).to_der();
+        let sub_seed = [1u8, 2u8, 3u8, 4u8];
+        let user_key2 = canister_user_key(canister, kind, &seed, Some(&sub_seed)).to_der();
         assert_ne!(user_key, user_key2);
-
-        let user_key3 =
-            canister_user_key(canister, kind, &seed, Some(&[1u8, 2u8, 3u8, 5u8])).to_der();
-        assert_ne!(user_key2, user_key3);
+        assert!(is_sub(&user_key2, seed.as_slice()));
+        assert!(is_sub(&user_key2, sub_seed.as_slice()));
     }
 }

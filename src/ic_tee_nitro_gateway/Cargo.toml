@@ -26,6 +26,6 @@ structured-logger = { workspace = true }
 hyper-util = { workspace = true }
 ic_cose_types = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.1" }
-ic_tee_agent = { path = "../ic_tee_agent", version = "0.1" }
-ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.1" }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
+ic_tee_agent = { path = "../ic_tee_agent", version = "0.2" }
+ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.2" }

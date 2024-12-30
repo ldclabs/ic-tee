@@ -29,7 +29,7 @@ const APP_NAME: &str = env!("CARGO_PKG_NAME");
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 static IC_HOST: &str = "https://icp-api.io";
-static TEE_KIND: &str = "Nitro"; // AWS Nitro Enclaves
+static TEE_KIND: &str = "NITRO"; // AWS Nitro Enclaves
 static SETTING_KEY_ID: &str = "id_ed25519";
 static SETTING_KEY_TLS: &str = "tls";
 static COSE_SECRET_PERMANENT_KEY: &str = "v1";
