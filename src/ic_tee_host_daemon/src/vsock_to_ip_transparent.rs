@@ -4,7 +4,7 @@ use tokio::{io::copy_bidirectional, io::AsyncReadExt, net::TcpStream};
 use tokio_vsock::{VsockAddr, VsockListener, VsockStream};
 
 pub async fn serve(listen_addr: VsockAddr) -> Result<()> {
-    let mut listener = VsockListener::bind(listen_addr).expect("failed to bind listener");
+    let listener = VsockListener::bind(listen_addr).expect("failed to bind listener");
     log::info!(target: "vsock_to_ip_transparent", "listening on {:?}", listen_addr);
 
     while let Ok((inbound, _)) = listener.accept().await {

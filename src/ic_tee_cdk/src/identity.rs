@@ -2,7 +2,6 @@ use candid::{CandidType, Principal};
 use ic_canister_sig_creation::CanisterSigPublicKey;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use sha3::{Digest, Sha3_256};
 
 use crate::to_cbor_bytes;
 

@@ -8,6 +8,6 @@
 `ic_tee_nitro_attestation` is a Rust library to process AWS Nitro enclave attestation.
 
 ## License
-Copyright © 2024 [LDC Labs](https://github.com/ldclabs).
+Copyright © 2024-2025 [LDC Labs](https://github.com/ldclabs).
 
 `ldclabs/ic-tee` is licensed under the MIT License. See [LICENSE](../../LICENSE-MIT) for the full license text.

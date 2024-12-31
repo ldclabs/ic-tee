@@ -8,6 +8,6 @@
 `ic_tee_agent` is an agent to interact with the Internet Computer for Trusted Execution Environments (TEEs).
 
 ## License
-Copyright © 2024 [LDC Labs](https://github.com/ldclabs).
+Copyright © 2024-2025 [LDC Labs](https://github.com/ldclabs).
 
 `ldclabs/ic-tee` is licensed under the MIT License. See [LICENSE](../../LICENSE-MIT) for the full license text.

@@ -2,11 +2,12 @@ use candid::{
     utils::{encode_args, ArgumentEncoder},
     CandidType, Decode, Principal,
 };
+use ciborium::into_writer;
 use ed25519_consensus::SigningKey;
 use ic_agent::Agent;
 use ic_cose_types::{
     cose::format_error,
-    types::{setting::SettingInfo, SettingPath},
+    types::{setting::SettingInfo, SettingPath, SignDelegationInput},
 };
 use ic_tee_cdk::{SignInResponse, SignedDelegation};
 use serde_bytes::ByteBuf;
@@ -108,7 +109,56 @@ impl TEEAgent {
         Ok(())
     }
 
-    pub async fn upgrade_identity(&self, identity: &BasicIdentity, expires_in_ms: u64) {
+    pub async fn upgrade_identity(
+        &self,
+        ns: String,
+        name: String,
+        session_key: (SigningKey, Vec<u8>),
+    ) -> Result<(), String> {
+        let mut id = {
+            let id = self.identity.read().await;
+            id.clone()
+            // drop read lock
+        };
+
+        let mut msg = vec![];
+        into_writer(&(&ns, &name, &id.get_principal()), &mut msg)
+            .expect("failed to encode Delegations data");
+        let sig = session_key.0.sign(&msg);
+        let pubkey = ByteBuf::from(session_key.1.clone());
+        let res: Result<SignInResponse, String> = self
+            .update_call(
+                &self.configuration_canister,
+                "namespace_sign_delegation",
+                (SignDelegationInput {
+                    ns,
+                    name,
+                    pubkey: pubkey.clone(),
+                    sig: sig.to_bytes().to_vec().into(),
+                },),
+            )
+            .await?;
+        let res = res?;
+        let user_key = res.user_key.to_vec();
+
+        let res: Result<SignedDelegation, String> = self
+            .query_call(
+                &self.configuration_canister,
+                "get_delegation",
+                (res.seed, pubkey, res.expiration),
+            )
+            .await?;
+        let res = res?;
+
+        id.update_with_delegation(user_key, session_key, res);
+        self.agent.write().await.set_identity(id.clone());
+        let mut w = self.identity.write().await;
+        *w = id;
+
+        Ok(())
+    }
+
+    pub async fn set_identity(&self, identity: &BasicIdentity, expires_in_ms: u64) {
         let mut id = {
             let id = self.identity.read().await;
             id.clone()

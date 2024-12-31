@@ -4,11 +4,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use candid::Principal;
 use clap::Parser;
 use ic_cose_types::types::SettingPath;
-use ic_tee_agent::{
-    agent::TEEAgent,
-    identity::{identity_from, TEEIdentity},
-    setting::{decrypt_payload, decrypt_tls},
-};
+use ic_tee_agent::{agent::TEEAgent, identity::TEEIdentity, setting::decrypt_tls};
 use ic_tee_cdk::{to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInformation};
 use ic_tee_nitro_attestation::{parse_and_verify, AttestationRequest};
 use std::{
@@ -30,7 +26,6 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 static IC_HOST: &str = "https://icp-api.io";
 static TEE_KIND: &str = "NITRO"; // AWS Nitro Enclaves
-static SETTING_KEY_ID: &str = "id_ed25519";
 static SETTING_KEY_TLS: &str = "tls";
 static COSE_SECRET_PERMANENT_KEY: &str = "v1";
 
@@ -133,7 +128,9 @@ async fn serve(cli: Cli) -> Result<()> {
        "parse_and_verify attestation for sign in, module_id: {:?}", attestation.module_id);
 
     tee_agent
-        .sign_in_with(session_key, || Ok((TEE_KIND.to_string(), doc.into())))
+        .sign_in_with(session_key.clone(), || {
+            Ok((TEE_KIND.to_string(), doc.into()))
+        })
         .await
         .map_err(anyhow::Error::msg)?;
 
@@ -141,51 +138,17 @@ async fn serve(cli: Cli) -> Result<()> {
         elapsed = start.elapsed().as_millis() as u64;
        "sign_in, principal: {:?}", tee_agent.get_principal().await.to_text());
 
-    let upgrade_identity =
-        if let Some(v) = cli.configuration_upgrade_identity {
-            Some(Principal::from_text(v).map_err(|err| {
-                anyhow::anyhow!("invalid configuration_upgrade_identity: {}", err)
-            })?)
-        } else {
-            None
-        };
-
     // upgrade to a permanent identity
-    let upgrade_identity = if let Some(subject) = upgrade_identity {
-        let id_path = SettingPath {
-            ns: namespace.clone(),
-            user_owned: false,
-            subject: Some(subject),
-            key: SETTING_KEY_ID.as_bytes().to_vec().into(),
-            version: 0,
-        };
-        let secret = tee_agent
-            .get_cose_secret(id_path.clone())
+    let upgrade_identity = if let Some(ref name) = cli.configuration_upgrade_identity {
+        tee_agent
+            .upgrade_identity(namespace.clone(), name.clone(), session_key)
             .await
             .map_err(anyhow::Error::msg)?;
-        log::info!(target: "bootstrap",
-            elapsed = start.elapsed().as_millis() as u64;
-            "get_cose_secret for upgrade_identity, principal: {:?}", subject.to_text());
-
-        let setting = tee_agent
-            .get_cose_setting(id_path)
-            .await
-            .map_err(anyhow::Error::msg)?;
-        log::info!(target: "bootstrap",
-            elapsed = start.elapsed().as_millis() as u64;
-            "get_cose_setting for upgrade_identity, principal: {:?}", subject.to_text());
-
-        let ed25519_secret = decrypt_payload(setting, secret).map_err(anyhow::Error::msg)?;
-        let ed25519_secret: [u8; 32] = ed25519_secret.try_into().map_err(|val: Vec<u8>| {
-            anyhow::anyhow!("invalid secret, expected 32 bytes, got {}", val.len())
-        })?;
-        let id = identity_from(ed25519_secret);
-        tee_agent.upgrade_identity(&id, session_expires_in_ms).await;
 
         log::info!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
             "upgrade_identity, principal: {:?}", tee_agent.get_principal().await.to_text());
-        Some(id)
+        Some(name.clone())
     } else {
         None
     };
@@ -230,14 +193,16 @@ async fn serve(cli: Cli) -> Result<()> {
                 _ = tokio::time::sleep(Duration::from_millis(refresh_identity_ms)) => {}
             };
 
+            let session_key = TEEIdentity::new_session();
+            let public_key = session_key.1.clone();
+            // ignore error
             match upgrade_identity {
-                Some(ref id) => {
-                    tee_agent.upgrade_identity(id, session_expires_in_ms).await;
+                Some(ref name) => {
+                    let _ = tee_agent
+                        .upgrade_identity(namespace.clone(), name.clone(), session_key)
+                        .await;
                 }
                 None => {
-                    // ignore error
-                    let session_key = TEEIdentity::new_session();
-                    let public_key = session_key.1.clone();
                     let _ = tee_agent
                         .sign_in_with(session_key, || {
                             let doc = sign_attestation(AttestationRequest {
@@ -335,7 +300,7 @@ async fn serve(cli: Cli) -> Result<()> {
 
         log::warn!(target: "bootstrap",
             elapsed = start.elapsed().as_millis() as u64;
-            "{}@{} listening on {:?} with tls", APP_NAME, APP_VERSION,addr);
+            "{}@{} listening on {:?} with TLS", APP_NAME, APP_VERSION,addr);
         axum_server::bind_rustls(addr, config)
             .handle(handle)
             .serve(app.into_make_service())

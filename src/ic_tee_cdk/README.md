@@ -8,6 +8,6 @@
 `ic_tee_cdk` is a Canister Development Kit to make Trusted Execution Environments (TEEs) work with the Internet Computer.
 
 ## License
-Copyright © 2024 [LDC Labs](https://github.com/ldclabs).
+Copyright © 2024-2025 [LDC Labs](https://github.com/ldclabs).
 
 `ldclabs/ic-tee` is licensed under the MIT License. See [LICENSE](../../LICENSE-MIT) for the full license text.
