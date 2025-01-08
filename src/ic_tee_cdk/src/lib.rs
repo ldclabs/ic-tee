@@ -30,6 +30,7 @@ pub struct AttestationUserRequest<T> {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TEEAppInformation {
     pub id: Principal,
+    pub instance: String,
     pub name: String,
     pub version: String,
     pub kind: String,
@@ -37,8 +38,8 @@ pub struct TEEAppInformation {
     pub pcr1: ByteBuf,
     pub pcr2: ByteBuf,
     pub start_time_ms: u64,
-    pub authentication_canister: Principal,
-    pub configuration_canister: Principal,
+    pub identity_canister: Principal,
+    pub cose_canister: Principal,
     pub registration_canister: Option<Principal>,
     pub caller: Principal,
 }
@@ -46,6 +47,7 @@ pub struct TEEAppInformation {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TEEAppInformationJSON {
     pub id: String,
+    pub instance: String,
     pub name: String,
     pub version: String,
     pub kind: String,
@@ -53,8 +55,8 @@ pub struct TEEAppInformationJSON {
     pub pcr1: String,
     pub pcr2: String,
     pub start_time_ms: u64,
-    pub authentication_canister: String,
-    pub configuration_canister: String,
+    pub identity_canister: String,
+    pub cose_canister: String,
     pub registration_canister: Option<String>,
     pub caller: String,
 }
@@ -75,5 +77,8 @@ pub struct TEEAttestationJSON {
 pub struct CanisterRequest {
     pub canister: Principal,
     pub method: String,
-    pub params: ByteBuf,
+    pub params: ByteBuf, // params should be encoded in CANDID format
 }
+
+// result should be encoded in CANDID format
+pub type CanisterResponse = Result<ByteBuf, String>;

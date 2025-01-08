@@ -5,6 +5,8 @@ use serde_bytes::ByteBuf;
 
 use crate::to_cbor_bytes;
 
+pub const SESSION_EXPIRES_IN_MS: u64 = 1000 * 3600 * 24; // 1 day
+
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Delegation {
     pub pubkey: ByteBuf,

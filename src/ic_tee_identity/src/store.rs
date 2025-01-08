@@ -1,5 +1,5 @@
 use candid::CandidType;
-use ciborium::{from_reader_with_buffer, into_writer};
+use ciborium::{from_reader, into_writer};
 use ic_canister_sig_creation::{
     signature_map::{CanisterSigInputs, SignatureMap, LABEL_SIG},
     DELEGATION_SIG_DOMAIN,
@@ -52,11 +52,10 @@ pub mod state {
     }
 
     pub fn load() {
-        let mut scratch = [0; 4096];
         STATE_STORE.with(|r| {
             STATE.with(|h| {
-                let v: State = from_reader_with_buffer(&r.borrow().get()[..], &mut scratch)
-                    .expect("failed to decode STATE_STORE data");
+                let v: State =
+                    from_reader(&r.borrow().get()[..]).expect("failed to decode STATE_STORE data");
                 *h.borrow_mut() = v;
             });
         });

@@ -16,6 +16,7 @@ tokio = { workspace = true }
 const-hex = { workspace = true }
 ic-agent = { workspace = true }
 ed25519-consensus = { workspace = true }
+ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }

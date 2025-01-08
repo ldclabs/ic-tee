@@ -15,6 +15,7 @@ axum = { workspace = true }
 axum-server = { workspace = true }
 clap = { workspace = true }
 const-hex = { workspace = true }
+ciborium = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 candid = { workspace = true }
@@ -24,8 +25,12 @@ aws-nitro-enclaves-nsm-api = { workspace = true }
 log = { workspace = true }
 structured-logger = { workspace = true }
 hyper-util = { workspace = true }
+ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
+ic-agent = { workspace = true }
+ed25519-consensus = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
+xid = { workspace = true }
 ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
 ic_tee_agent = { path = "../ic_tee_agent", version = "0.2" }
 ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.2" }

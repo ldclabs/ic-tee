@@ -1,3 +1,48 @@
+/// The `UserSignature` struct represents an end user's signature and provides methods to
+/// parse and validate the signature from HTTP headers.
+///
+/// # Fields
+/// - `pubkey`: User's public key
+/// - `delegation`: Chain of signed delegations
+/// - `signature`: Signature of the content digest
+/// - `digest`: Hash of the request content
+/// - `user`: Principal derived from public key
+///
+/// # Methods
+/// - `try_from(headers: &HeaderMap) -> Option<Self>`:
+///   Attempts to create a `UserSignature` from HTTP headers. Returns `Some(UserSignature)`
+///   if successful, otherwise `None`.
+///
+/// - `validate_request(&self, now_ms: u64, tee_id: Principal) -> Result<(), AuthenticationError>`:
+///   Validates the user signature and its delegations. Checks for expiration, delegation
+///   targets, and verifies the signature. Returns `Ok(())` if valid, otherwise returns an
+///   `AuthenticationError`.
+///
+/// # Errors
+/// The `validate_request` method can return the following errors:
+/// - `AuthenticationError::AnonymousSignatureNotAllowed`: If the signature belongs to an anonymous user.
+/// - `AuthenticationError::DelegationTooLongError`: If the chain of delegations is too long.
+/// - `AuthenticationError::InvalidDelegationExpiry`: If a delegation has expired.
+/// - `AuthenticationError::InvalidPublicKey`: If the public key is invalid.
+/// - `AuthenticationError::InvalidSignature`: If the signature is invalid.
+/// - `AuthenticationError::InvalidDelegation`: If a delegation is invalid.
+/// - `AuthenticationError::CanisterNotInDelegationTargets`: If the canister is not in the delegation targets.
+///
+/// # Constants
+/// - `PERMITTED_DRIFT_MS`: Allowed time drift for expiration (30s)
+/// - `ANONYMOUS_PRINCIPAL`: Anonymous user identifier
+///
+/// # Header Constants
+/// - `HEADER_IC_TEE_PUBKEY`: Public key header
+/// - `HEADER_IC_TEE_DELEGATION`: Delegation chain header
+/// - `HEADER_IC_TEE_CONTENT_DIGEST`: Content hash header
+/// - `HEADER_IC_TEE_SIGNATURE`: Signature header
+/// - `HEADER_IC_TEE_ID`: TEE identifier header
+/// - `HEADER_IC_TEE_CALLER`: Caller principal header
+///
+/// # Static Variables
+/// - `IC_ROOT_PUBLIC_KEY`: The IC root public key used when verifying canister signatures.
+///
 use axum::http::header::{HeaderMap, HeaderName};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use candid::Principal;
@@ -15,13 +60,26 @@ use thiserror::Error;
 pub const PERMITTED_DRIFT_MS: u64 = 30 * 1000;
 pub const ANONYMOUS_PRINCIPAL: Principal = Principal::anonymous();
 
-pub static HEADER_IC_TEE_ID: HeaderName = HeaderName::from_static("ic-tee-id");
-pub static HEADER_IC_TEE_CALLER: HeaderName = HeaderName::from_static("ic-tee-caller");
+pub static HEADER_X_FORWARDED_FOR: HeaderName = HeaderName::from_static("x-forwarded-for");
+pub static HEADER_X_FORWARDED_HOST: HeaderName = HeaderName::from_static("x-forwarded-host");
+pub static HEADER_X_FORWARDED_PROTO: HeaderName = HeaderName::from_static("x-forwarded-proto");
+
+/// Caller's public key for authentication
 pub static HEADER_IC_TEE_PUBKEY: HeaderName = HeaderName::from_static("ic-tee-pubkey");
+/// Delegation chain for authentication
 pub static HEADER_IC_TEE_DELEGATION: HeaderName = HeaderName::from_static("ic-tee-delegation");
-pub static HEADER_IC_TEE_SIGNATURE: HeaderName = HeaderName::from_static("ic-tee-signature");
+/// Request content hash (customizable by business logic)
 pub static HEADER_IC_TEE_CONTENT_DIGEST: HeaderName =
     HeaderName::from_static("ic-tee-content-digest");
+/// Signature of the content digest
+pub static HEADER_IC_TEE_SIGNATURE: HeaderName = HeaderName::from_static("ic-tee-signature");
+
+/// TEE ID added to upstream requests
+pub static HEADER_IC_TEE_ID: HeaderName = HeaderName::from_static("ic-tee-id");
+/// TEE instance ID added to upstream requests
+pub static HEADER_IC_TEE_INSTANCE: HeaderName = HeaderName::from_static("ic-tee-instance");
+/// Authenticated caller principal (or anonymous principal)
+pub static HEADER_IC_TEE_CALLER: HeaderName = HeaderName::from_static("ic-tee-caller");
 
 lazy_static! {
     /// The IC root public key used when verifying canister signatures.
@@ -37,7 +95,7 @@ lazy_static! {
     ]);
 }
 
-/// An end user's signature.
+/// Represents an end user's signature for HTTP request authentication.
 #[derive(Clone, Debug)]
 pub struct UserSignature {
     pub pubkey: Vec<u8>,
@@ -75,6 +133,12 @@ impl UserSignature {
         None
     }
 
+    /// Validation Rules
+    /// - Rejects anonymous users
+    /// - Delegation chain length ≤ 10
+    /// - Delegations must not be expired
+    /// - Signature must verify against the public key
+    /// - Canister must be in delegation targets (if specified)
     pub fn validate_request(
         &self,
         now_ms: u64,
@@ -152,17 +216,7 @@ impl UserSignature {
     }
 }
 
-fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
-    if let Some(val) = headers.get(key) {
-        if let Ok(val) = val.to_str() {
-            if let Ok(data) = URL_SAFE_NO_PAD.decode(val.trim().trim_end_matches('=')) {
-                return Some(data);
-            }
-        }
-    }
-    None
-}
-
+/// Errors that can occur during signature validation
 #[derive(Debug, Error)]
 pub enum AuthenticationError {
     #[error("Invalid public key: {0}")]
@@ -179,4 +233,15 @@ pub enum AuthenticationError {
     AnonymousSignatureNotAllowed,
     #[error("Canister '{0}' is not one of the delegation targets.")]
     CanisterNotInDelegationTargets(Principal),
+}
+
+fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
+    if let Some(val) = headers.get(key) {
+        if let Ok(val) = val.to_str() {
+            if let Ok(data) = URL_SAFE_NO_PAD.decode(val.trim().trim_end_matches('=')) {
+                return Some(data);
+            }
+        }
+    }
+    None
 }

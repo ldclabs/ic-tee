@@ -7,19 +7,13 @@ use ic_agent::{
     identity::{AnonymousIdentity, BasicIdentity},
     Identity,
 };
+use ic_cose::{agent::build_agent, client::Client, rand_bytes};
 use ic_cose_types::{
     cose::{cose_aes256_key, encrypt0::cose_encrypt0, CborSerializable},
     to_cbor_bytes,
-    types::{
-        setting::{CreateSettingInput, CreateSettingOutput, SettingInfo},
-        SettingPath,
-    },
+    types::{setting::CreateSettingInput, SettingPath},
 };
-use ic_tee_agent::{
-    agent::{query_call, update_call},
-    rand_bytes,
-    setting::{get_cose_secret, TLSPayload},
-};
+use ic_tee_agent::setting::TLSPayload;
 use ic_tee_cdk::canister_user_key;
 use ic_tee_nitro_attestation::{parse, parse_and_verify};
 use pkcs8::{
@@ -32,7 +26,7 @@ use pkcs8::{
 };
 use rand::thread_rng;
 use serde_bytes::ByteBuf;
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 static LOCAL_HOST: &str = "http://127.0.0.1:4943";
 static IC_HOST: &str = "https://icp-api.io";
@@ -194,10 +188,7 @@ async fn main() -> Result<()> {
         Some(Commands::TeeVerify { kind, doc, url }) => {
             let doc = match (doc, url) {
                 (Some(doc), None) => doc.to_owned(),
-                (None, Some(url)) => {
-                    
-                    reqwest::get(url).await?.text().await?
-                }
+                (None, Some(url)) => reqwest::get(url).await?.text().await?,
                 _ => Err(anyhow::anyhow!("doc or url is required"))?,
             };
             let doc = decode_hex(&doc)?;
@@ -226,7 +217,12 @@ async fn main() -> Result<()> {
         }) => {
             let canister = Principal::from_text(&cli.canister)
                 .map_err(|err| anyhow::anyhow!("invalid COSE canister: {:?}", err))?;
-            let agent = build_agent(host, identity).await;
+            let agent = Arc::new(
+                build_agent(host, identity)
+                    .await
+                    .map_err(anyhow::Error::msg)?,
+            );
+            let cose = Client::new(agent.clone(), canister);
             let path = SettingPath {
                 ns: ns.clone(),
                 user_owned: *user_owned,
@@ -235,11 +231,7 @@ async fn main() -> Result<()> {
                 version: *version,
             };
 
-            let res: Result<SettingInfo, String> =
-                query_call(&agent, &canister, "setting_get", (path,))
-                    .await
-                    .map_err(anyhow::Error::msg)?;
-            let res = res.map_err(anyhow::Error::msg)?;
+            let res = cose.setting_get(&path).await.map_err(anyhow::Error::msg)?;
             pretty_println(&res)?;
         }
 
@@ -250,7 +242,12 @@ async fn main() -> Result<()> {
             let id = BasicIdentity::from_pem(content.as_bytes())?;
             let principal = id.sender().map_err(anyhow::Error::msg)?;
             let keypair = KeypairBytes::from_pkcs8_pem(&content)?;
-            let agent = build_agent(host, identity).await;
+            let agent = Arc::new(
+                build_agent(host, identity)
+                    .await
+                    .map_err(anyhow::Error::msg)?,
+            );
+            let cose = Client::new(agent.clone(), canister);
             let path = SettingPath {
                 ns: ns.clone(),
                 user_owned: false,
@@ -258,32 +255,28 @@ async fn main() -> Result<()> {
                 key: ByteBuf::from(SETTING_KEY_ID.as_bytes()),
                 version: 0,
             };
-            let secret = get_cose_secret(&agent, &canister, path.clone())
+            let secret = cose
+                .get_cose_encrypted_key(&path)
                 .await
                 .map_err(anyhow::Error::msg)?;
             let key = cose_aes256_key(keypair.secret_key, principal.as_slice().to_vec());
             let key = key.to_vec().unwrap();
             let nonce: [u8; 12] = rand_bytes();
             let payload =
-                cose_encrypt0(&key, &secret, &[], nonce, None).map_err(anyhow::Error::msg)?;
-            let res: Result<CreateSettingOutput, String> = update_call(
-                &agent,
-                &canister,
-                "setting_create",
-                (
-                    path,
-                    CreateSettingInput {
+                cose_encrypt0(&key, &secret, &[], &nonce, None).map_err(anyhow::Error::msg)?;
+            let res = cose
+                .setting_create(
+                    &path,
+                    &CreateSettingInput {
                         dek: Some(payload.into()),
                         payload: None,
                         desc: None,
                         status: None,
                         tags: None,
                     },
-                ),
-            )
-            .await
-            .map_err(anyhow::Error::msg)?;
-            let res = res.map_err(anyhow::Error::msg)?;
+                )
+                .await
+                .map_err(anyhow::Error::msg)?;
             pretty_println(&res)?;
         }
 
@@ -307,54 +300,52 @@ async fn main() -> Result<()> {
             // let _ = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
             //     .await
             //     .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
-            let agent = build_agent(host, identity).await;
+            let agent = Arc::new(
+                build_agent(host, identity)
+                    .await
+                    .map_err(anyhow::Error::msg)?,
+            );
+            let cose = Client::new(agent.clone(), canister);
             let dek: [u8; 32] = rand_bytes();
             let nonce: [u8; 12] = rand_bytes();
             let payload = to_cbor_bytes(&tls);
             let payload =
-                cose_encrypt0(&payload, &dek, &[], nonce, None).map_err(anyhow::Error::msg)?;
+                cose_encrypt0(&payload, &dek, &[], &nonce, None).map_err(anyhow::Error::msg)?;
 
-            let secret = get_cose_secret(
-                &agent,
-                &canister,
-                SettingPath {
+            let secret = cose
+                .get_cose_encrypted_key(&SettingPath {
                     ns: ns.clone(),
                     user_owned: false,
                     subject: Some(subject),
                     key: ByteBuf::from(COSE_SECRET_PERMANENT_KEY.as_bytes()),
                     version: 0,
-                },
-            )
-            .await
-            .map_err(anyhow::Error::msg)?;
+                })
+                .await
+                .map_err(anyhow::Error::msg)?;
             let dek = cose_aes256_key(dek, COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec());
             let dek = dek.to_vec().unwrap();
             let nonce: [u8; 12] = rand_bytes();
-            let dek = cose_encrypt0(&dek, &secret, &[], nonce, None).map_err(anyhow::Error::msg)?;
-            let res: Result<CreateSettingOutput, String> = update_call(
-                &agent,
-                &canister,
-                "setting_create",
-                (
-                    SettingPath {
+            let dek =
+                cose_encrypt0(&dek, &secret, &[], &nonce, None).map_err(anyhow::Error::msg)?;
+            let res = cose
+                .setting_create(
+                    &SettingPath {
                         ns: ns.clone(),
                         user_owned: false,
                         subject: Some(subject),
                         key: ByteBuf::from(SETTING_KEY_TLS.as_bytes()),
                         version: 0,
                     },
-                    CreateSettingInput {
+                    &CreateSettingInput {
                         dek: Some(dek.into()),
                         payload: Some(payload.into()),
                         desc: None,
                         status: None,
                         tags: None,
                     },
-                ),
-            )
-            .await
-            .map_err(anyhow::Error::msg)?;
-            let res = res.map_err(anyhow::Error::msg)?;
+                )
+                .await
+                .map_err(anyhow::Error::msg)?;
             pretty_println(&res)?;
         }
 
@@ -367,29 +358,16 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_identity(path: &str) -> Result<Box<dyn Identity>> {
+fn load_identity(path: &str) -> Result<Arc<dyn Identity>> {
     if path == "Anonymous" {
-        return Ok(Box::new(AnonymousIdentity));
+        return Ok(Arc::new(AnonymousIdentity));
     }
 
     let content = std::fs::read_to_string(path)?;
     match BasicIdentity::from_pem(content.as_bytes()) {
-        Ok(identity) => Ok(Box::new(identity)),
+        Ok(identity) => Ok(Arc::new(identity)),
         Err(err) => Err(err.into()),
     }
-}
-
-async fn build_agent(host: &str, identity: Box<dyn Identity>) -> ic_agent::Agent {
-    let agent = ic_agent::Agent::builder()
-        .with_url(host)
-        .with_identity(identity)
-        .with_verify_query_signatures(true)
-        .build()
-        .expect("failed to build agent");
-    if host.starts_with("http://") {
-        agent.fetch_root_key().await.expect("fetch root key failed");
-    }
-    agent
 }
 
 fn pretty_println<T>(data: &T) -> Result<()>

@@ -1,16 +1,19 @@
-use rand::thread_rng;
-use rand::RngCore;
+use serde::{Deserialize, Serialize};
+use serde_bytes::ByteBuf;
 
 pub mod agent;
+pub mod crypto;
 pub mod http;
 pub mod identity;
 pub mod setting;
 
 pub use identity::*;
 
-pub fn rand_bytes<const N: usize>() -> [u8; N] {
-    let mut rng = thread_rng();
-    let mut bytes = [0u8; N];
-    rng.fill_bytes(&mut bytes);
-    bytes
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RPCRequest {
+    pub method: String,
+    pub params: ByteBuf, // params should be encoded in CBOR format
 }
+
+// result should be encoded in CBOR format
+pub type RPCResponse = Result<ByteBuf, String>;

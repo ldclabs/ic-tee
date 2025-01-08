@@ -55,7 +55,8 @@ ic-stable-structures = "0.6"
 ic-canister-sig-creation = "1.1"
 ic-certification = "3.0"
 ic-agent = "0.39"
-ic_cose_types = "0.5"
+ic_cose_types = "0.6"
+ic_cose = "0.6"
 getrandom = { version = "0.2", features = ["custom"] }
 coset = "0.3"
 x509-parser = { version = "0.16" }
@@ -82,5 +83,8 @@ reqwest = { version = "0.12", features = [
 ], default-features = true }
 libc = "0.2"
 thiserror = "2"
+xid = "1.1"
 ic-types = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
 ic-crypto-standalone-sig-verifier = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
+ic-crypto-secp256k1 = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
+ic-crypto-ed25519 = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }

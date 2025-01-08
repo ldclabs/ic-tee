@@ -1,4 +1,5 @@
 use candid::CandidType;
+use ic_tee_cdk::SESSION_EXPIRES_IN_MS;
 use serde::Deserialize;
 
 use crate::store;
@@ -25,7 +26,7 @@ pub struct UpgradeArgs {
 fn init(args: Option<ChainArgs>) {
     match args.unwrap_or(ChainArgs::Init(InitArgs {
         name: "IC TEE Identity Service".to_string(),
-        session_expires_in_ms: 1000 * 3600 * 24, // 1 day
+        session_expires_in_ms: SESSION_EXPIRES_IN_MS, // 1 day
     })) {
         ChainArgs::Init(args) => {
             store::state::with_mut(|s| {
