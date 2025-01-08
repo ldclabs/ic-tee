@@ -34,3 +34,6 @@ xid = { workspace = true }
 ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
 ic_tee_agent = { path = "../ic_tee_agent", version = "0.2" }
 ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.2" }
+
+[dev-dependencies]
+reqwest = { workspace = true }

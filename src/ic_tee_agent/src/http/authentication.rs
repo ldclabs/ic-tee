@@ -121,11 +121,14 @@ impl UserSignature {
             }
             if let Some(signature) = get_data(headers, &HEADER_IC_TEE_SIGNATURE) {
                 sig.signature = signature;
-                if let Some(data) = get_data(headers, &HEADER_IC_TEE_DELEGATION) {
-                    if let Ok(delegation) = from_reader(&data[..]) {
-                        sig.delegation = delegation;
-                        return Some(sig);
+                match get_data(headers, &HEADER_IC_TEE_DELEGATION) {
+                    Some(data) => {
+                        if let Ok(delegation) = from_reader(&data[..]) {
+                            sig.delegation = delegation;
+                            return Some(sig);
+                        }
                     }
+                    None => return Some(sig),
                 }
             }
         }
@@ -135,7 +138,7 @@ impl UserSignature {
 
     /// Validation Rules
     /// - Rejects anonymous users
-    /// - Delegation chain length ≤ 10
+    /// - Delegation chain length ≤ 3
     /// - Delegations must not be expired
     /// - Signature must verify against the public key
     /// - Canister must be in delegation targets (if specified)
@@ -148,7 +151,7 @@ impl UserSignature {
             return Err(AuthenticationError::AnonymousSignatureNotAllowed);
         }
 
-        if self.delegation.len() > 10 {
+        if self.delegation.len() > 3 {
             return Err(AuthenticationError::DelegationTooLongError {
                 length: self.delegation.len(),
                 maximum: 5,
@@ -244,4 +247,65 @@ fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ed25519_consensus::SigningKey;
+    use ic_agent::{identity::BasicIdentity, Identity};
+    use ic_cose_types::{cose::sha3_256, to_cbor_bytes};
+    use structured_logger::unix_ms;
+
+    #[test]
+    fn test_user_signature() {
+        let secret = [8u8; 32];
+        let sk = SigningKey::from(secret);
+        let id = BasicIdentity::from_signing_key(sk);
+        println!("id: {:?}", id.sender().unwrap().to_text());
+        // jjn6g-sh75l-r3cxb-wxrkl-frqld-6p6qq-d4ato-wske5-op7s5-n566f-bqe
+
+        let msg = b"hello world";
+        let digest = sha3_256(msg);
+        let sig = id.sign_arbitrary(digest.as_slice()).unwrap();
+        println!("{:?}", sig);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            &HEADER_IC_TEE_PUBKEY,
+            URL_SAFE_NO_PAD
+                .encode(sig.public_key.unwrap())
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(
+            &HEADER_IC_TEE_CONTENT_DIGEST,
+            URL_SAFE_NO_PAD.encode(digest).parse().unwrap(),
+        );
+        headers.insert(
+            &HEADER_IC_TEE_SIGNATURE,
+            URL_SAFE_NO_PAD
+                .encode(sig.signature.unwrap())
+                .parse()
+                .unwrap(),
+        );
+        if let Some(delegations) = sig.delegations {
+            headers.insert(
+                &HEADER_IC_TEE_DELEGATION,
+                URL_SAFE_NO_PAD
+                    .encode(to_cbor_bytes(&delegations))
+                    .parse()
+                    .unwrap(),
+            );
+        }
+
+        let mut us = UserSignature::try_from(&headers).unwrap();
+        assert!(us
+            .validate_request(unix_ms(), Principal::anonymous())
+            .is_ok());
+
+        us.digest = sha3_256(b"hello world 2").to_vec();
+        assert!(us
+            .validate_request(unix_ms(), Principal::anonymous())
+            .is_err());
+    }
 }

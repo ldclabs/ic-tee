@@ -214,10 +214,8 @@ async fn bootstrap(cli: Cli) -> Result<()> {
     let master_secret = tee_agent
         .cose_get_secret(&SettingPath {
             ns: namespace.clone(),
-            user_owned: false,
-            subject: Some(principal),
             key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
-            version: 0,
+            ..Default::default()
         })
         .await
         .map_err(anyhow::Error::msg)?;
@@ -301,11 +299,17 @@ async fn bootstrap(cli: Cli) -> Result<()> {
             .route("/information", routing::get(handler::get_information))
             .route(
                 "/attestation",
-                routing::get(handler::get_attestation).post(handler::post_attestation),
+                routing::get(handler::get_attestation).post(handler::local_sign_attestation),
             )
-            .route("/canister/query", routing::post(handler::query_canister))
-            .route("/canister/update", routing::post(handler::update_canister))
-            .route("/keys", routing::post(handler::call_keys))
+            .route(
+                "/canister/query",
+                routing::post(handler::local_query_canister),
+            )
+            .route(
+                "/canister/update",
+                routing::post(handler::local_update_canister),
+            )
+            .route("/keys", routing::post(handler::local_call_keys))
             .with_state(handler::AppState {
                 info: info.clone(),
                 http_client: http_client.clone(),

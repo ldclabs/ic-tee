@@ -37,3 +37,4 @@ ic-crypto-ed25519 = { workspace = true }
 
 [dev-dependencies]
 const-hex = { workspace = true }
+structured-logger = { workspace = true }

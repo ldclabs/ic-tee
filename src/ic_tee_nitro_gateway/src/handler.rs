@@ -127,7 +127,7 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
 }
 
 /// local_server: POST /attestation
-pub async fn post_attestation(
+pub async fn local_sign_attestation(
     State(_app): State<AppState>,
     ct: Content<AttestationRequest>,
 ) -> impl IntoResponse {
@@ -163,7 +163,7 @@ pub async fn post_attestation(
 }
 
 /// local_server: POST /canister/query
-pub async fn query_canister(
+pub async fn local_query_canister(
     State(app): State<AppState>,
     ct: Content<CanisterRequest>,
 ) -> impl IntoResponse {
@@ -183,7 +183,7 @@ pub async fn query_canister(
 }
 
 /// local_server: POST /canister/update
-pub async fn update_canister(
+pub async fn local_update_canister(
     State(app): State<AppState>,
     ct: Content<CanisterRequest>,
 ) -> impl IntoResponse {
@@ -203,7 +203,10 @@ pub async fn update_canister(
 }
 
 /// local_server: POST /keys
-pub async fn call_keys(State(app): State<AppState>, ct: Content<RPCRequest>) -> impl IntoResponse {
+pub async fn local_call_keys(
+    State(app): State<AppState>,
+    ct: Content<RPCRequest>,
+) -> impl IntoResponse {
     match ct {
         Content::CBOR(req, _) => {
             let res = handle_keys_request(&req, app.tee_agent.as_ref());
@@ -366,4 +369,141 @@ fn forbid_canister_request(req: &CanisterRequest, info: &TEEAppInformation) -> b
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use candid::{decode_args, encode_args, Principal};
+    use ic_cose::rand_bytes;
+    use ic_cose_types::{
+        cose::ecdh,
+        types::{state::StateInfo, ECDHOutput, SettingPath},
+    };
+    use ic_tee_agent::{crypto::decrypt_ecdh, http::CONTENT_TYPE_CBOR};
+    use ic_tee_cdk::CanisterResponse;
+
+    static TEE_HOST: &str = "http://127.0.0.1:8080";
+    // static TEE_ID: &str = "m6a24-ioo3h-wtn6z-rntjm-rkzgw-24nrf-2x6jb-znzpt-7uctp-akavf-yqe";
+    static COSE_CANISTER: &str = "53cyg-yyaaa-aaaap-ahpua-cai";
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore]
+    async fn test_local_call_canister() {
+        let client = reqwest::Client::new();
+
+        // local_query_canister
+        {
+            let params = encode_args(()).unwrap();
+            let req = CanisterRequest {
+                canister: Principal::from_text(COSE_CANISTER).unwrap(),
+                method: "state_get_info".to_string(),
+                params: params.into(),
+            };
+            let res = client
+                .post(format!("{}/canister/query", TEE_HOST))
+                .header(&header::CONTENT_TYPE, CONTENT_TYPE_CBOR)
+                .body(to_cbor_bytes(&req))
+                .send()
+                .await
+                .unwrap();
+            assert!(res.status().is_success());
+            assert_eq!(
+                res.headers().get(header::CONTENT_TYPE).unwrap(),
+                CONTENT_TYPE_CBOR
+            );
+
+            let data = res.bytes().await.unwrap();
+            let res: CanisterResponse = from_reader(&data[..]).unwrap();
+            assert!(res.is_ok());
+            let res: (Result<StateInfo, String>,) = decode_args(&res.unwrap()).unwrap();
+            let res = res.0.unwrap();
+            assert_eq!(res.name, "LDC Labs");
+            assert_eq!(res.schnorr_key_name, "dfx_test_key");
+        }
+
+        // local_update_canister
+        {
+            let nonce: [u8; 12] = rand_bytes();
+            let secret: [u8; 32] = rand_bytes();
+            let secret = ecdh::StaticSecret::from(secret);
+            let public = ecdh::PublicKey::from(&secret);
+            let params = encode_args((
+                SettingPath {
+                    ns: "_".to_string(),
+                    key: "v1".as_bytes().to_vec().into(),
+                    ..Default::default()
+                },
+                ECDHInput {
+                    nonce: nonce.into(),
+                    public_key: public.to_bytes().into(),
+                },
+            ))
+            .unwrap();
+            let req = CanisterRequest {
+                canister: Principal::from_text(COSE_CANISTER).unwrap(),
+                method: "ecdh_cose_encrypted_key".to_string(),
+                params: params.into(),
+            };
+            let res = client
+                .post(format!("{}/canister/update", TEE_HOST))
+                .header(&header::CONTENT_TYPE, CONTENT_TYPE_CBOR)
+                .body(to_cbor_bytes(&req))
+                .send()
+                .await
+                .unwrap();
+            assert!(res.status().is_success());
+            assert_eq!(
+                res.headers().get(header::CONTENT_TYPE).unwrap(),
+                CONTENT_TYPE_CBOR
+            );
+
+            let data = res.bytes().await.unwrap();
+            let res: CanisterResponse = from_reader(&data[..]).unwrap();
+            assert!(res.is_ok());
+            let res: (Result<ECDHOutput<ByteBuf>, String>,) = decode_args(&res.unwrap()).unwrap();
+            assert!(res.0.is_ok());
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore]
+    async fn test_local_call_keys() {
+        let client = reqwest::Client::new();
+
+        let nonce: [u8; 12] = rand_bytes();
+        let secret: [u8; 32] = rand_bytes();
+        let secret = ecdh::StaticSecret::from(secret);
+        let public = ecdh::PublicKey::from(&secret);
+        let params = to_cbor_bytes(&(
+            &[0u8; 0],
+            &ECDHInput {
+                nonce: nonce.into(),
+                public_key: public.to_bytes().into(),
+            },
+        ));
+        let req = RPCRequest {
+            method: "a256gcm_ecdh_key".to_string(),
+            params: params.into(),
+        };
+        let res = client
+            .post(format!("{}/keys", TEE_HOST))
+            .header(&header::CONTENT_TYPE, CONTENT_TYPE_CBOR)
+            .body(to_cbor_bytes(&req))
+            .send()
+            .await
+            .unwrap();
+        assert!(res.status().is_success());
+        assert_eq!(
+            res.headers().get(header::CONTENT_TYPE).unwrap(),
+            CONTENT_TYPE_CBOR
+        );
+
+        let data = res.bytes().await.unwrap();
+        let res: RPCResponse = from_reader(&data[..]).unwrap();
+        assert!(res.is_ok());
+        let res: ECDHOutput<ByteBuf> = from_reader(res.unwrap().as_slice()).unwrap();
+        let key = decrypt_ecdh(secret.to_bytes(), &res).unwrap();
+        assert_eq!(key.len(), 32);
+    }
 }
