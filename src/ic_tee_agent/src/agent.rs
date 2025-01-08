@@ -10,21 +10,20 @@ use ic_cose_types::{
     cose::format_error,
     types::{
         setting::{CreateSettingInput, CreateSettingOutput, SettingInfo},
-        ECDHInput, ECDHOutput, SettingPath, SignDelegationInput,
+        SettingPath, SignDelegationInput,
     },
 };
 use ic_tee_cdk::{Delegation, SignInResponse, SignedDelegation};
-use serde_bytes::{ByteArray, ByteBuf};
+use serde_bytes::ByteBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::{crypto, BasicIdentity, TEEIdentity};
+use crate::{BasicIdentity, TEEIdentity};
 
 #[derive(Clone)]
 pub struct TEEAgent {
     agents: Arc<RwLock<Agents>>,
     auth_canister: Principal,
-    root_secret: [u8; 48],
 }
 
 struct Agents {
@@ -47,7 +46,6 @@ impl TEEAgent {
         host: &str,
         authentication_canister: Principal,
         configuration_canister: Principal,
-        root_secret: [u8; 48],
     ) -> Result<Self, String> {
         let identity = TEEIdentity::new();
         let agent = Agent::builder()
@@ -68,83 +66,7 @@ impl TEEAgent {
         Ok(Self {
             auth_canister: authentication_canister,
             agents: Arc::new(RwLock::new(agents)),
-            root_secret,
         })
-    }
-
-    pub fn set_root_secret(&mut self, root_secret: [u8; 48]) {
-        self.root_secret = root_secret;
-    }
-
-    pub fn a256gcm_key(&self, derivation_path: Vec<ByteBuf>) -> ByteArray<32> {
-        crypto::a256gcm_key(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-        )
-    }
-
-    pub fn a256gcm_ecdh_key(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-        ecdh: &ECDHInput,
-    ) -> ECDHOutput<ByteBuf> {
-        crypto::a256gcm_ecdh_key(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            ecdh,
-        )
-    }
-
-    pub fn ed25519_sign_message(&self, derivation_path: Vec<ByteBuf>, msg: &[u8]) -> ByteArray<64> {
-        crypto::ed25519_sign_message(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            msg,
-        )
-    }
-
-    pub fn ed25519_public_key(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-    ) -> (ByteArray<32>, ByteArray<32>) {
-        crypto::ed25519_public_key(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-        )
-    }
-
-    pub fn secp256k1_sign_message_bip340(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-        msg: &[u8],
-    ) -> ByteArray<64> {
-        crypto::secp256k1_sign_message_bip340(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            msg,
-        )
-    }
-
-    pub fn secp256k1_sign_message_ecdsa(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-        msg: &[u8],
-    ) -> ByteArray<64> {
-        crypto::secp256k1_sign_message_ecdsa(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            msg,
-        )
-    }
-
-    pub fn secp256k1_public_key(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-    ) -> (ByteArray<33>, ByteArray<32>) {
-        crypto::secp256k1_public_key(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-        )
     }
 
     pub async fn get_principal(&self) -> Principal {

@@ -28,6 +28,7 @@ use tokio::{net::TcpStream, signal};
 use tokio_util::sync::CancellationToken;
 
 mod attestation;
+mod crypto;
 mod handler;
 
 use attestation::sign_attestation;
@@ -129,7 +130,7 @@ async fn bootstrap(cli: Cli) -> Result<()> {
         .map_err(|err| anyhow::anyhow!("invalid identity_canister id: {}", err))?;
     let cose_canister = Principal::from_text(cli.cose_canister)
         .map_err(|err| anyhow::anyhow!("invalid cose_canister id: {}", err))?;
-    let mut tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister, [0u8; 48])
+    let tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister)
         .await
         .map_err(anyhow::Error::msg)?;
 
@@ -226,7 +227,6 @@ async fn bootstrap(cli: Cli) -> Result<()> {
     log::info!(target: LOG_TARGET, "start to get_or_set_root_secret");
     let root_secret =
         get_or_set_root_secret(&tee_agent, &start, namespace.clone(), &master_secret).await?;
-    tee_agent.set_root_secret(root_secret);
 
     let info = TEEAppInformation {
         id: principal,
@@ -310,12 +310,13 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                 routing::post(handler::local_update_canister),
             )
             .route("/keys", routing::post(handler::local_call_keys))
-            .with_state(handler::AppState {
-                info: info.clone(),
-                http_client: http_client.clone(),
-                tee_agent: tee_agent.clone(),
-                upstream_port: None,
-            });
+            .with_state(handler::AppState::new(
+                info.clone(),
+                http_client.clone(),
+                tee_agent.clone(),
+                root_secret,
+                None,
+            ));
         let addr: SocketAddr = LOCAL_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
@@ -340,12 +341,13 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                 routing::get(handler::get_attestation),
             )
             .route("/*any", routing::any(handler::proxy))
-            .with_state(handler::AppState {
-                info: info.clone(),
-                http_client: http_client.clone(),
-                tee_agent: tee_agent.clone(),
-                upstream_port: cli.upstream_port,
-            });
+            .with_state(handler::AppState::new(
+                info.clone(),
+                http_client.clone(),
+                tee_agent.clone(),
+                [0u8; 48],
+                None,
+            ));
         let addr: SocketAddr = PUBLIC_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
 
         if is_local {

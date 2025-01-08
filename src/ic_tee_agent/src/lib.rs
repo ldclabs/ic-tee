@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
 pub mod agent;
-pub mod crypto;
 pub mod http;
 pub mod identity;
 pub mod setting;

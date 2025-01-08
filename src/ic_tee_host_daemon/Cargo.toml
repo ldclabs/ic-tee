@@ -9,7 +9,6 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
-futures = { workspace = true }
 tokio = { workspace = true }
 tokio-vsock = { workspace = true }
 anyhow = { workspace = true }

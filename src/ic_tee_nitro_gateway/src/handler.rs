@@ -6,7 +6,10 @@ use axum::{
 };
 use ciborium::from_reader;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
-use ic_cose_types::{format_error, to_cbor_bytes, types::ECDHInput};
+use ic_cose_types::{
+    format_error, to_cbor_bytes,
+    types::{ECDHInput, ECDHOutput},
+};
 use ic_tee_agent::{
     agent::TEEAgent,
     http::{
@@ -21,11 +24,11 @@ use ic_tee_cdk::{
     CanisterRequest, TEEAppInformation, TEEAppInformationJSON, TEEAttestation, TEEAttestationJSON,
 };
 use ic_tee_nitro_attestation::AttestationRequest;
-use serde_bytes::ByteBuf;
+use serde_bytes::{ByteArray, ByteBuf};
 use std::sync::Arc;
 use structured_logger::unix_ms;
 
-use crate::{attestation::sign_attestation, TEE_KIND};
+use crate::{attestation::sign_attestation, crypto, TEE_KIND};
 
 type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 
@@ -36,10 +39,100 @@ pub fn new_client() -> Client {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub info: Arc<TEEAppInformation>,
-    pub http_client: Arc<Client>,
-    pub tee_agent: Arc<TEEAgent>,
-    pub upstream_port: Option<u16>,
+    info: Arc<TEEAppInformation>,
+    http_client: Arc<Client>,
+    tee_agent: Arc<TEEAgent>,
+    root_secret: [u8; 48],
+    upstream_port: Option<u16>,
+}
+
+impl AppState {
+    pub fn new(
+        info: Arc<TEEAppInformation>,
+        http_client: Arc<Client>,
+        tee_agent: Arc<TEEAgent>,
+        root_secret: [u8; 48],
+        upstream_port: Option<u16>,
+    ) -> Self {
+        Self {
+            info,
+            http_client,
+            tee_agent,
+            root_secret,
+            upstream_port,
+        }
+    }
+
+    pub fn a256gcm_key(&self, derivation_path: Vec<ByteBuf>) -> ByteArray<32> {
+        crypto::a256gcm_key(
+            &self.root_secret,
+            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
+        )
+    }
+
+    pub fn a256gcm_ecdh_key(
+        &self,
+        derivation_path: Vec<ByteBuf>,
+        ecdh: &ECDHInput,
+    ) -> ECDHOutput<ByteBuf> {
+        crypto::a256gcm_ecdh_key(
+            &self.root_secret,
+            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
+            ecdh,
+        )
+    }
+
+    pub fn ed25519_sign_message(&self, derivation_path: Vec<ByteBuf>, msg: &[u8]) -> ByteArray<64> {
+        crypto::ed25519_sign_message(
+            &self.root_secret,
+            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
+            msg,
+        )
+    }
+
+    pub fn ed25519_public_key(
+        &self,
+        derivation_path: Vec<ByteBuf>,
+    ) -> (ByteArray<32>, ByteArray<32>) {
+        crypto::ed25519_public_key(
+            &self.root_secret,
+            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
+        )
+    }
+
+    pub fn secp256k1_sign_message_bip340(
+        &self,
+        derivation_path: Vec<ByteBuf>,
+        msg: &[u8],
+    ) -> ByteArray<64> {
+        crypto::secp256k1_sign_message_bip340(
+            &self.root_secret,
+            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
+            msg,
+        )
+    }
+
+    pub fn secp256k1_sign_message_ecdsa(
+        &self,
+        derivation_path: Vec<ByteBuf>,
+        msg: &[u8],
+    ) -> ByteArray<64> {
+        crypto::secp256k1_sign_message_ecdsa(
+            &self.root_secret,
+            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
+            msg,
+        )
+    }
+
+    pub fn secp256k1_public_key(
+        &self,
+        derivation_path: Vec<ByteBuf>,
+    ) -> (ByteArray<33>, ByteArray<32>) {
+        crypto::secp256k1_public_key(
+            &self.root_secret,
+            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
+        )
+    }
 }
 
 /// local_server: GET /information
@@ -209,7 +302,7 @@ pub async fn local_call_keys(
 ) -> impl IntoResponse {
     match ct {
         Content::CBOR(req, _) => {
-            let res = handle_keys_request(&req, app.tee_agent.as_ref());
+            let res = handle_keys_request(&req, &app);
             Content::CBOR(res, None).into_response()
         }
         _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
@@ -308,48 +401,48 @@ pub async fn proxy(
     }
 }
 
-fn handle_keys_request(req: &RPCRequest, agent: &TEEAgent) -> RPCResponse {
+fn handle_keys_request(req: &RPCRequest, app: &AppState) -> RPCResponse {
     match req.method.as_str() {
         "a256gcm_key" => {
             let params: (Vec<ByteBuf>,) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
-            let res = agent.a256gcm_key(params.0);
+            let res = app.a256gcm_key(params.0);
             Ok(to_cbor_bytes(&res).into())
         }
         "a256gcm_ecdh_key" => {
             let params: (Vec<ByteBuf>, ECDHInput) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
-            let res = agent.a256gcm_ecdh_key(params.0, &params.1);
+            let res = app.a256gcm_ecdh_key(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "ed25519_sign_message" => {
             let params: (Vec<ByteBuf>, ByteBuf) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
-            let res = agent.ed25519_sign_message(params.0, &params.1);
+            let res = app.ed25519_sign_message(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "ed25519_public_key" => {
             let params: (Vec<ByteBuf>,) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
-            let res = agent.ed25519_public_key(params.0);
+            let res = app.ed25519_public_key(params.0);
             Ok(to_cbor_bytes(&res).into())
         }
         "secp256k1_sign_message_bip340" => {
             let params: (Vec<ByteBuf>, ByteBuf) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
-            let res = agent.secp256k1_sign_message_bip340(params.0, &params.1);
+            let res = app.secp256k1_sign_message_bip340(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "secp256k1_sign_message_ecdsa" => {
             let params: (Vec<ByteBuf>, ByteBuf) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
-            let res = agent.secp256k1_sign_message_ecdsa(params.0, &params.1);
+            let res = app.secp256k1_sign_message_ecdsa(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "secp256k1_public_key" => {
             let params: (Vec<ByteBuf>,) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
-            let res = agent.secp256k1_public_key(params.0);
+            let res = app.secp256k1_public_key(params.0);
             Ok(to_cbor_bytes(&res).into())
         }
         _ => Err(format!("unsupported method {}", req.method)),
@@ -374,13 +467,14 @@ fn forbid_canister_request(req: &CanisterRequest, info: &TEEAppInformation) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::decrypt_ecdh;
     use candid::{decode_args, encode_args, Principal};
     use ic_cose::rand_bytes;
     use ic_cose_types::{
         cose::ecdh,
         types::{state::StateInfo, ECDHOutput, SettingPath},
     };
-    use ic_tee_agent::{crypto::decrypt_ecdh, http::CONTENT_TYPE_CBOR};
+    use ic_tee_agent::http::CONTENT_TYPE_CBOR;
     use ic_tee_cdk::CanisterResponse;
 
     static TEE_HOST: &str = "http://127.0.0.1:8080";

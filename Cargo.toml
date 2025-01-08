@@ -18,7 +18,7 @@ strip = true
 opt-level = 's'
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 repository = "https://github.com/ldclabs/ic-tee"
 keywords = ["tee", "canister", "icp", "nitro"]
@@ -43,13 +43,11 @@ clap = { version = "4.5", features = ["derive"] }
 candid = "0.10"
 ciborium = "0.2"
 const-hex = "1"
-futures = "0.3"
 lazy_static = "1.5"
 serde = "1"
 serde_json = "1"
 serde_bytes = "0.11"
 sha2 = "0.10"
-sha3 = "0.10"
 ic-cdk = "0.17"
 ic-stable-structures = "0.6"
 ic-canister-sig-creation = "1.1"
@@ -61,7 +59,6 @@ getrandom = { version = "0.2", features = ["custom"] }
 coset = "0.3"
 x509-parser = { version = "0.16" }
 ed25519-consensus = "2.1"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
 rand = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
@@ -83,7 +80,6 @@ reqwest = { version = "0.12", features = [
 ], default-features = true }
 libc = "0.2"
 thiserror = "2"
-xid = "1.1"
 ic-types = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
 ic-crypto-standalone-sig-verifier = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
 ic-crypto-secp256k1 = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }

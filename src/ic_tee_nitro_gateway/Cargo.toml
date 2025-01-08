@@ -19,7 +19,6 @@ ciborium = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 candid = { workspace = true }
-serde = { workspace = true }
 serde_bytes = { workspace = true }
 aws-nitro-enclaves-nsm-api = { workspace = true }
 log = { workspace = true }
@@ -30,7 +29,8 @@ ic_cose_types = { workspace = true }
 ic-agent = { workspace = true }
 ed25519-consensus = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
-xid = { workspace = true }
+ic-crypto-secp256k1 = { workspace = true }
+ic-crypto-ed25519 = { workspace = true }
 ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
 ic_tee_agent = { path = "../ic_tee_agent", version = "0.2" }
 ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.2" }

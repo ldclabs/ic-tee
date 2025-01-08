@@ -14,7 +14,6 @@ ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
 base64 = { workspace = true }
 candid = { workspace = true }
 ed25519-consensus = { workspace = true }
-x25519-dalek = { workspace = true }
 ciborium = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -32,9 +31,6 @@ ic_cose_types = { workspace = true }
 ic-types = { workspace = true }
 ic-canister-sig-creation = { workspace = true }
 ic-crypto-standalone-sig-verifier = { workspace = true }
-ic-crypto-secp256k1 = { workspace = true }
-ic-crypto-ed25519 = { workspace = true }
 
 [dev-dependencies]
-const-hex = { workspace = true }
 structured-logger = { workspace = true }

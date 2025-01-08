@@ -1,5 +1,9 @@
 {
+  "__Candid_UI": {
+    "local": "bw4dl-smaaa-aaaaa-qaacq-cai"
+  },
   "ic_tee_identity": {
-    "ic": "e7tgb-6aaaa-aaaap-akqfa-cai"
+    "ic": "e7tgb-6aaaa-aaaap-akqfa-cai",
+    "local": "e7tgb-6aaaa-aaaap-akqfa-cai"
   }
 }
