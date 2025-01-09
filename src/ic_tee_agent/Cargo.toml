@@ -11,6 +11,8 @@ license.workspace = true
 
 [dependencies]
 ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
+http = { workspace = true }
+axum-core = { workspace = true }
 base64 = { workspace = true }
 candid = { workspace = true }
 ed25519-consensus = { workspace = true }
@@ -21,7 +23,6 @@ serde_bytes = { workspace = true }
 ic-agent = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true }
-axum = { workspace = true }
 bytes = { workspace = true }
 mime = { workspace = true }
 thiserror = { workspace = true }

@@ -1,3 +1,37 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use candid::Principal;
+use ciborium::from_reader;
+use http::header::{HeaderMap, HeaderName};
+use ic_agent::Identity;
+use ic_canister_sig_creation::delegation_signature_msg;
+use ic_cose_types::{cose::sha3_256, to_cbor_bytes};
+use ic_tee_cdk::SignedDelegation;
+use thiserror::Error;
+
+pub const PERMITTED_DRIFT_MS: u64 = 30 * 1000;
+pub const ANONYMOUS_PRINCIPAL: Principal = Principal::anonymous();
+
+pub static HEADER_X_FORWARDED_FOR: HeaderName = HeaderName::from_static("x-forwarded-for");
+pub static HEADER_X_FORWARDED_HOST: HeaderName = HeaderName::from_static("x-forwarded-host");
+pub static HEADER_X_FORWARDED_PROTO: HeaderName = HeaderName::from_static("x-forwarded-proto");
+
+/// Caller's public key for authentication
+pub static HEADER_IC_TEE_PUBKEY: HeaderName = HeaderName::from_static("ic-tee-pubkey");
+/// Delegation chain for authentication
+pub static HEADER_IC_TEE_DELEGATION: HeaderName = HeaderName::from_static("ic-tee-delegation");
+/// Request content hash (customizable by business logic)
+pub static HEADER_IC_TEE_CONTENT_DIGEST: HeaderName =
+    HeaderName::from_static("ic-tee-content-digest");
+/// Signature of the content digest
+pub static HEADER_IC_TEE_SIGNATURE: HeaderName = HeaderName::from_static("ic-tee-signature");
+
+/// TEE ID added to upstream requests
+pub static HEADER_IC_TEE_ID: HeaderName = HeaderName::from_static("ic-tee-id");
+/// TEE instance ID added to upstream requests
+pub static HEADER_IC_TEE_INSTANCE: HeaderName = HeaderName::from_static("ic-tee-instance");
+/// Authenticated caller principal (or anonymous principal)
+pub static HEADER_IC_TEE_CALLER: HeaderName = HeaderName::from_static("ic-tee-caller");
+
 /// The `UserSignature` struct represents an end user's signature and provides methods to
 /// parse and validate the signature from HTTP headers.
 ///
@@ -41,41 +75,6 @@
 /// # Static Variables
 /// - `IC_ROOT_PUBLIC_KEY`: The IC root public key used when verifying canister signatures.
 ///
-use axum::http::header::{HeaderMap, HeaderName};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use candid::Principal;
-use ciborium::from_reader;
-use ic_agent::Identity;
-use ic_canister_sig_creation::delegation_signature_msg;
-use ic_cose_types::{cose::sha3_256, to_cbor_bytes};
-use ic_tee_cdk::SignedDelegation;
-use thiserror::Error;
-
-pub const PERMITTED_DRIFT_MS: u64 = 30 * 1000;
-pub const ANONYMOUS_PRINCIPAL: Principal = Principal::anonymous();
-
-pub static HEADER_X_FORWARDED_FOR: HeaderName = HeaderName::from_static("x-forwarded-for");
-pub static HEADER_X_FORWARDED_HOST: HeaderName = HeaderName::from_static("x-forwarded-host");
-pub static HEADER_X_FORWARDED_PROTO: HeaderName = HeaderName::from_static("x-forwarded-proto");
-
-/// Caller's public key for authentication
-pub static HEADER_IC_TEE_PUBKEY: HeaderName = HeaderName::from_static("ic-tee-pubkey");
-/// Delegation chain for authentication
-pub static HEADER_IC_TEE_DELEGATION: HeaderName = HeaderName::from_static("ic-tee-delegation");
-/// Request content hash (customizable by business logic)
-pub static HEADER_IC_TEE_CONTENT_DIGEST: HeaderName =
-    HeaderName::from_static("ic-tee-content-digest");
-/// Signature of the content digest
-pub static HEADER_IC_TEE_SIGNATURE: HeaderName = HeaderName::from_static("ic-tee-signature");
-
-/// TEE ID added to upstream requests
-pub static HEADER_IC_TEE_ID: HeaderName = HeaderName::from_static("ic-tee-id");
-/// TEE instance ID added to upstream requests
-pub static HEADER_IC_TEE_INSTANCE: HeaderName = HeaderName::from_static("ic-tee-instance");
-/// Authenticated caller principal (or anonymous principal)
-pub static HEADER_IC_TEE_CALLER: HeaderName = HeaderName::from_static("ic-tee-caller");
-
-/// Represents an end user's signature for HTTP request authentication.
 #[derive(Clone, Debug)]
 pub struct UserSignature {
     pub pubkey: Vec<u8>,

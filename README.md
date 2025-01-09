@@ -21,6 +21,6 @@ Relation project:
 | [ic_tee_nitro_gateway](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_nitro_gateway)         | A gateway service within an AWS Nitro enclave.                                                            |
 
 ## License
-Copyright © 2024 [LDC Labs](https://github.com/ldclabs).
+Copyright © 2024-2025 [LDC Labs](https://github.com/ldclabs).
 
 `ldclabs/ic-tee` is licensed under the MIT License. See [LICENSE](./LICENSE-MIT) for the full license text.

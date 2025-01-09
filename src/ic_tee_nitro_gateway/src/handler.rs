@@ -32,11 +32,6 @@ use crate::{attestation::sign_attestation, crypto, ic_sig_verifier::verify_sig, 
 
 type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 
-pub fn new_client() -> Client {
-    hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
-        .build(HttpConnector::new())
-}
-
 #[derive(Clone)]
 pub struct AppState {
     info: Arc<TEEAppInformation>,
@@ -49,11 +44,14 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         info: Arc<TEEAppInformation>,
-        http_client: Arc<Client>,
         tee_agent: Arc<TEEAgent>,
         root_secret: [u8; 48],
         upstream_port: Option<u16>,
     ) -> Self {
+        let http_client = Arc::new(
+            hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
+                .build(HttpConnector::new()),
+        );
         Self {
             info,
             http_client,
@@ -396,7 +394,7 @@ pub async fn proxy(
         Ok(res) => Ok(res.into_response()),
         Err(err) => Err(Content::Text(
             err.to_string(),
-            Some(StatusCode::INTERNAL_SERVER_ERROR),
+            Some(StatusCode::BAD_REQUEST),
         )),
     }
 }

@@ -250,10 +250,8 @@ async fn bootstrap(cli: Cli) -> Result<()> {
         elapsed = start.elapsed().as_millis() as u64;
         "TEE app information, principal: {:?}", principal.to_text());
 
-    let http_client = Arc::new(handler::new_client());
-    let tee_agent = Arc::new(tee_agent);
     let info = Arc::new(info);
-
+    let tee_agent = Arc::new(tee_agent);
     let handle = axum_server::Handle::new();
     let cancel_token = CancellationToken::new();
     let shutdown_future = shutdown_signal(handle.clone(), cancel_token.clone());
@@ -313,7 +311,6 @@ async fn bootstrap(cli: Cli) -> Result<()> {
             .route("/keys", routing::post(handler::local_call_keys))
             .with_state(handler::AppState::new(
                 info.clone(),
-                http_client.clone(),
                 tee_agent.clone(),
                 root_secret,
                 None,
@@ -341,10 +338,9 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                 "/.well-known/attestation",
                 routing::get(handler::get_attestation),
             )
-            .route("/*any", routing::any(handler::proxy))
+            .route("/{*any}", routing::any(handler::proxy))
             .with_state(handler::AppState::new(
                 info.clone(),
-                http_client.clone(),
                 tee_agent.clone(),
                 [0u8; 48],
                 None,

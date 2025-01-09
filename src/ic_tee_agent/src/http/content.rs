@@ -1,14 +1,12 @@
-use axum::{
-    async_trait,
-    body::Bytes,
+use axum_core::{
     extract::{FromRequest, Request},
-    http::{
-        header::{self, HeaderMap, HeaderValue},
-        StatusCode,
-    },
     response::{IntoResponse, Response},
 };
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
+use http::{
+    header::{self, HeaderMap, HeaderValue},
+    StatusCode,
+};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub static CONTENT_TYPE_CBOR: &str = "application/cbor";
@@ -64,11 +62,9 @@ impl Content<()> {
     }
 }
 
-#[async_trait]
-impl<T, S> FromRequest<S> for Content<T>
+impl<S, T> FromRequest<S> for Content<T>
 where
-    T: DeserializeOwned + Send + Sync,
-    Bytes: FromRequest<S>,
+    T: DeserializeOwned,
     S: Send + Sync,
 {
     type Rejection = Response;
