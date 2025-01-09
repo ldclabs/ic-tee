@@ -28,7 +28,7 @@ use serde_bytes::{ByteArray, ByteBuf};
 use std::sync::Arc;
 use structured_logger::unix_ms;
 
-use crate::{attestation::sign_attestation, crypto, TEE_KIND};
+use crate::{attestation::sign_attestation, crypto, ic_sig_verifier::verify_sig, TEE_KIND};
 
 type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 
@@ -140,7 +140,7 @@ impl AppState {
 pub async fn get_information(State(app): State<AppState>, req: Request) -> impl IntoResponse {
     let mut info = app.info.as_ref().clone();
     info.caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.validate_request(unix_ms(), app.info.id) {
+        match sig.verify_with(app.info.id, unix_ms(), verify_sig) {
             Ok(_) => sig.user,
             Err(_) => ANONYMOUS_PRINCIPAL,
         }
@@ -180,7 +180,7 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
 /// public_server: GET /.well-known/attestation
 pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl IntoResponse {
     let caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.validate_request(unix_ms(), app.info.id) {
+        match sig.verify_with(app.info.id, unix_ms(), verify_sig) {
             Ok(_) => sig.user,
             Err(_) => ANONYMOUS_PRINCIPAL,
         }
@@ -329,7 +329,7 @@ pub async fn proxy(
     };
 
     let caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.validate_request(unix_ms(), app.info.id) {
+        match sig.verify_with(app.info.id, unix_ms(), verify_sig) {
             Ok(_) => sig.user,
             Err(err) => {
                 return Err(Content::Text(

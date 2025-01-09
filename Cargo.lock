@@ -1763,7 +1763,7 @@ dependencies = [
  "sha2 0.10.8",
  "simple_asn1",
  "stop-token",
- "thiserror 2.0.9",
+ "thiserror 2.0.10",
  "time",
  "tokio",
  "tower-service",
@@ -2334,7 +2334,7 @@ dependencies = [
  "serde_cbor",
  "serde_repr",
  "sha2 0.10.8",
- "thiserror 2.0.9",
+ "thiserror 2.0.10",
 ]
 
 [[package]]
@@ -2440,9 +2440,9 @@ dependencies = [
 
 [[package]]
 name = "ic_cose"
-version = "0.6.3"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5a4c4c998a1d54b931d71d6c6e51b2cd1fa607d15adc4c74fe1aecb16c88000"
+checksum = "c05177c8346afdfff6d2ed0af2cc99d86b542e4c9cb45db0b5a0b30f4264c1db"
 dependencies = [
  "candid",
  "ic-agent",
@@ -2454,9 +2454,9 @@ dependencies = [
 
 [[package]]
 name = "ic_cose_types"
-version = "0.6.3"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c32cfefae962e94581ecb6e9b8aa118f496e1024234acf7fab6a2de782a40bf"
+checksum = "a1f490544a49dae44c43901a48c22f076466842df17bf54eae22c1ada170ab4e"
 dependencies = [
  "aes-gcm",
  "candid",
@@ -2474,7 +2474,7 @@ dependencies = [
  "serde_bytes",
  "sha2 0.10.8",
  "sha3",
- "thiserror 2.0.9",
+ "thiserror 2.0.10",
  "x25519-dalek",
 ]
 
@@ -2493,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_agent"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2515,13 +2515,13 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "structured-logger",
- "thiserror 2.0.9",
+ "thiserror 2.0.10",
  "tokio",
 ]
 
 [[package]]
 name = "ic_tee_cdk"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "candid",
  "ciborium",
@@ -2533,7 +2533,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "candid",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_host_daemon"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2569,7 +2569,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_identity"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "candid",
  "ciborium",
@@ -2587,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_logtail"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2598,7 +2598,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_attestation"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "candid",
  "ciborium",
@@ -2614,7 +2614,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_gateway"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "aws-nitro-enclaves-nsm-api",
@@ -2629,11 +2629,14 @@ dependencies = [
  "ic-agent",
  "ic-crypto-ed25519",
  "ic-crypto-secp256k1",
+ "ic-crypto-standalone-sig-verifier",
+ "ic-types",
  "ic_cose",
  "ic_cose_types",
  "ic_tee_agent",
  "ic_tee_cdk",
  "ic_tee_nitro_attestation",
+ "lazy_static",
  "log",
  "reqwest",
  "rustls",
@@ -3557,7 +3560,7 @@ dependencies = [
  "rustc-hash 2.1.0",
  "rustls",
  "socket2",
- "thiserror 2.0.9",
+ "thiserror 2.0.10",
  "tokio",
  "tracing",
 ]
@@ -3576,7 +3579,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.9",
+ "thiserror 2.0.10",
  "tinyvec",
  "tracing",
  "web-time",
@@ -4488,11 +4491,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.9"
+version = "2.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f072643fd0190df67a8bab670c20ef5d8737177d6ac6b2e9a236cb096206b2cc"
+checksum = "a3ac7f54ca534db81081ef1c1e7f6ea8a3ef428d2fc069097c079443d24124d3"
 dependencies = [
- "thiserror-impl 2.0.9",
+ "thiserror-impl 2.0.10",
 ]
 
 [[package]]
@@ -4508,9 +4511,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.9"
+version = "2.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b50fa271071aae2e6ee85f842e2e28ba8cd2c5fb67f11fcb1fd70b276f9e7d4"
+checksum = "9e9465d30713b56a37ede7185763c3492a91be2f5fa68d958c44e41ab9248beb"
 dependencies = [
  "proc-macro2",
  "quote",

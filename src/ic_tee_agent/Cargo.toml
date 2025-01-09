@@ -25,12 +25,12 @@ axum = { workspace = true }
 bytes = { workspace = true }
 mime = { workspace = true }
 thiserror = { workspace = true }
-lazy_static = { workspace = true }
 ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
-ic-types = { workspace = true }
 ic-canister-sig-creation = { workspace = true }
-ic-crypto-standalone-sig-verifier = { workspace = true }
 
 [dev-dependencies]
+lazy_static = { workspace = true }
 structured-logger = { workspace = true }
+ic-types = { workspace = true }
+ic-crypto-standalone-sig-verifier = { workspace = true }

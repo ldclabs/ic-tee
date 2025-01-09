@@ -1,6 +1,6 @@
 use ic_cose::rand_bytes;
 use ic_cose_types::{
-    cose::kdf::derive_aesgcm256_secret,
+    cose::kdf::derive_a256gcm_key,
     cose::{
         ecdh::ecdh_x25519,
         encrypt0::{cose_decrypt0, cose_encrypt0},
@@ -21,7 +21,7 @@ pub fn a256gcm_key(root_secret: &[u8], derivation_path: Vec<Vec<u8>>) -> ByteArr
         .flat_map(|slice| slice.into_iter())
         .collect();
     let salt = mac3_256(&salt, b"A256GCM");
-    let key = derive_aesgcm256_secret(root_secret, Some(&salt));
+    let key = derive_a256gcm_key(root_secret, Some(&salt));
     key.into()
 }
 
@@ -42,7 +42,7 @@ pub fn a256gcm_ecdh_key(
         .flat_map(|slice| slice.into_iter())
         .collect();
     let salt = mac3_256(&salt, b"A256GCM_ECDH");
-    let key = derive_aesgcm256_secret(root_secret, Some(&salt));
+    let key = derive_a256gcm_key(root_secret, Some(&salt));
     let secret_key: [u8; 32] = rand_bytes();
     let secret_key = mac3_256(&secret_key, ecdh.nonce.as_ref());
     let (shared_secret, public_key) = ecdh_x25519(secret_key, *ecdh.public_key);
@@ -262,7 +262,7 @@ pub fn derive_secp256k1_public_key(
 #[cfg(test)]
 mod test {
     use super::*;
-    use ic_cose_types::cose::k256::{schnorr_secp256k1_verify, secp256k1_verify};
+    use ic_cose_types::cose::k256::{secp256k1_verify_bip340, secp256k1_verify_ecdsa};
     use ic_cose_types::cose::{ecdh, ed25519::ed25519_verify, sha256};
 
     const ROOT_SECRET: [u8; 48] = [0u8; 48];
@@ -288,11 +288,11 @@ mod test {
         let msg = b"hello";
         let sig = secp256k1_sign_message_bip340(&ROOT_SECRET, vec![], msg);
         let (pk, code) = secp256k1_public_key(&ROOT_SECRET, vec![]);
-        assert!(schnorr_secp256k1_verify(pk.as_slice(), msg, sig.as_slice()).is_ok());
+        assert!(secp256k1_verify_bip340(pk.as_slice(), msg, sig.as_slice()).is_ok());
 
         let sig = secp256k1_sign_message_bip340(&ROOT_SECRET, vec![b"v1".to_vec()], msg);
         let (pk, code) = derive_secp256k1_public_key(&pk, &code, vec![b"v1".to_vec()]).unwrap();
-        assert!(schnorr_secp256k1_verify(pk.as_slice(), msg, sig.as_slice()).is_ok());
+        assert!(secp256k1_verify_bip340(pk.as_slice(), msg, sig.as_slice()).is_ok());
 
         let sig = secp256k1_sign_message_bip340(
             &ROOT_SECRET,
@@ -300,7 +300,7 @@ mod test {
             msg,
         );
         let (pk, _) = derive_secp256k1_public_key(&pk, &code, vec![b"test".to_vec()]).unwrap();
-        assert!(schnorr_secp256k1_verify(pk.as_slice(), msg, sig.as_slice()).is_ok());
+        assert!(secp256k1_verify_bip340(pk.as_slice(), msg, sig.as_slice()).is_ok());
     }
 
     #[test]
@@ -308,16 +308,22 @@ mod test {
         let msg = b"hello";
         let sig = secp256k1_sign_message_ecdsa(&ROOT_SECRET, vec![], msg);
         let (pk, code) = secp256k1_public_key(&ROOT_SECRET, vec![]);
-        assert!(secp256k1_verify(pk.as_slice(), sha256(msg).as_slice(), sig.as_slice()).is_ok());
+        assert!(
+            secp256k1_verify_ecdsa(pk.as_slice(), sha256(msg).as_slice(), sig.as_slice()).is_ok()
+        );
 
         let sig = secp256k1_sign_message_ecdsa(&ROOT_SECRET, vec![b"v1".to_vec()], msg);
         let (pk, code) = derive_secp256k1_public_key(&pk, &code, vec![b"v1".to_vec()]).unwrap();
-        assert!(secp256k1_verify(pk.as_slice(), sha256(msg).as_slice(), sig.as_slice()).is_ok());
+        assert!(
+            secp256k1_verify_ecdsa(pk.as_slice(), sha256(msg).as_slice(), sig.as_slice()).is_ok()
+        );
 
         let sig =
             secp256k1_sign_message_ecdsa(&ROOT_SECRET, vec![b"v1".to_vec(), b"test".to_vec()], msg);
         let (pk, _) = derive_secp256k1_public_key(&pk, &code, vec![b"test".to_vec()]).unwrap();
-        assert!(secp256k1_verify(pk.as_slice(), sha256(msg).as_slice(), sig.as_slice()).is_ok());
+        assert!(
+            secp256k1_verify_ecdsa(pk.as_slice(), sha256(msg).as_slice(), sig.as_slice()).is_ok()
+        );
     }
 
     #[test]

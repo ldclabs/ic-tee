@@ -20,12 +20,10 @@
 ///
 /// # Errors
 /// The `validate_request` method can return the following errors:
+/// - `AuthenticationError::VerifyFailed`: If verify failed.
 /// - `AuthenticationError::AnonymousSignatureNotAllowed`: If the signature belongs to an anonymous user.
 /// - `AuthenticationError::DelegationTooLongError`: If the chain of delegations is too long.
 /// - `AuthenticationError::InvalidDelegationExpiry`: If a delegation has expired.
-/// - `AuthenticationError::InvalidPublicKey`: If the public key is invalid.
-/// - `AuthenticationError::InvalidSignature`: If the signature is invalid.
-/// - `AuthenticationError::InvalidDelegation`: If a delegation is invalid.
 /// - `AuthenticationError::CanisterNotInDelegationTargets`: If the canister is not in the delegation targets.
 ///
 /// # Constants
@@ -47,14 +45,10 @@ use axum::http::header::{HeaderMap, HeaderName};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use candid::Principal;
 use ciborium::from_reader;
+use ic_agent::Identity;
 use ic_canister_sig_creation::delegation_signature_msg;
-use ic_crypto_standalone_sig_verifier::{
-    user_public_key_from_bytes, verify_basic_sig_by_public_key, verify_canister_sig,
-    KeyBytesContentType,
-};
+use ic_cose_types::{cose::sha3_256, to_cbor_bytes};
 use ic_tee_cdk::SignedDelegation;
-use ic_types::crypto::threshold_sig::IcRootOfTrust;
-use lazy_static::lazy_static;
 use thiserror::Error;
 
 pub const PERMITTED_DRIFT_MS: u64 = 30 * 1000;
@@ -80,20 +74,6 @@ pub static HEADER_IC_TEE_ID: HeaderName = HeaderName::from_static("ic-tee-id");
 pub static HEADER_IC_TEE_INSTANCE: HeaderName = HeaderName::from_static("ic-tee-instance");
 /// Authenticated caller principal (or anonymous principal)
 pub static HEADER_IC_TEE_CALLER: HeaderName = HeaderName::from_static("ic-tee-caller");
-
-lazy_static! {
-    /// The IC root public key used when verifying canister signatures.
-    /// https://internetcomputer.org/docs/current/developer-docs/web-apps/obtain-verify-ic-pubkey
-    /// remove der_prefix
-    pub static ref IC_ROOT_PUBLIC_KEY: IcRootOfTrust =
-    IcRootOfTrust::from([
-        129, 76, 14, 110, 199, 31, 171, 88, 59, 8, 189, 129, 55, 60, 37, 92, 60, 55, 27, 46, 132, 134,
-        60, 152, 164, 241, 224, 139, 116, 35, 93, 20, 251, 93, 156, 12, 213, 70, 217, 104, 95, 145, 58,
-        12, 11, 44, 197, 52, 21, 131, 191, 75, 67, 146, 228, 103, 219, 150, 214, 91, 155, 180, 203,
-        113, 113, 18, 248, 71, 46, 13, 90, 77, 20, 80, 95, 253, 116, 132, 176, 18, 145, 9, 28, 95, 135,
-        185, 136, 131, 70, 63, 152, 9, 26, 11, 170, 174,
-    ]);
-}
 
 /// Represents an end user's signature for HTTP request authentication.
 #[derive(Clone, Debug)]
@@ -136,16 +116,18 @@ impl UserSignature {
         None
     }
 
-    /// Validation Rules
+    /// Verify Rules
     /// - Rejects anonymous users
     /// - Delegation chain length ≤ 3
     /// - Delegations must not be expired
     /// - Signature must verify against the public key
     /// - Canister must be in delegation targets (if specified)
-    pub fn validate_request(
+    pub fn verify_with(
         &self,
+        canister: Principal,
         now_ms: u64,
-        tee_id: Principal,
+        // fn verify_sig(pubkey: &[u8], msg: &[u8], sig: &[u8]) -> Result<(), String>
+        verify: impl Fn(&[u8], &[u8], &[u8]) -> Result<(), String>,
     ) -> Result<(), AuthenticationError> {
         if self.user == ANONYMOUS_PRINCIPAL {
             return Err(AuthenticationError::AnonymousSignatureNotAllowed);
@@ -175,7 +157,7 @@ impl UserSignature {
             let targets = match &d.delegation.targets {
                 Some(targets) => {
                     has_targets = true;
-                    in_targets = in_targets || targets.contains(&tee_id);
+                    in_targets = in_targets || targets.contains(&canister);
                     Some(
                         targets
                             .iter()
@@ -186,52 +168,36 @@ impl UserSignature {
                 None => None,
             };
 
-            let (pk, kt) = user_public_key_from_bytes(last_verified)
-                .map_err(|e| AuthenticationError::InvalidPublicKey(e.to_string()))?;
             let msg = delegation_signature_msg(
                 d.delegation.pubkey.as_slice(),
                 d.delegation.expiration,
                 targets.as_ref(),
             );
-            match kt {
-                KeyBytesContentType::IcCanisterSignatureAlgPublicKeyDer => {
-                    verify_canister_sig(&msg, &d.signature, &pk.key, *IC_ROOT_PUBLIC_KEY)
-                        .map_err(|e| AuthenticationError::InvalidDelegation(e.to_string()))?;
-                }
-                _ => {
-                    verify_basic_sig_by_public_key(pk.algorithm_id, &msg, &d.signature, &pk.key)
-                        .map_err(|e| AuthenticationError::InvalidDelegation(e.to_string()))?;
-                }
-            }
+            verify(last_verified, &msg, &d.signature).map_err(AuthenticationError::VerifyFailed)?;
 
             last_verified = &d.delegation.pubkey;
         }
 
         if has_targets && !in_targets {
-            return Err(AuthenticationError::CanisterNotInDelegationTargets(tee_id));
+            return Err(AuthenticationError::CanisterNotInDelegationTargets(
+                canister,
+            ));
         }
 
-        let (pk, _) = user_public_key_from_bytes(last_verified)
-            .map_err(|e| AuthenticationError::InvalidPublicKey(e.to_string()))?;
-        verify_basic_sig_by_public_key(pk.algorithm_id, &self.digest, &self.signature, &pk.key)
-            .map_err(|e| AuthenticationError::InvalidSignature(e.to_string()))?;
-        Ok(())
+        verify(last_verified, &self.digest, &self.signature)
+            .map_err(AuthenticationError::VerifyFailed)
     }
 }
 
 /// Errors that can occur during signature validation
 #[derive(Debug, Error)]
 pub enum AuthenticationError {
-    #[error("Invalid public key: {0}")]
-    InvalidPublicKey(String),
+    #[error("Verify failed: {0}")]
+    VerifyFailed(String),
     #[error{"Chain of delegations is too long: got {length} delegations, but at most {maximum} are allowed."}]
     DelegationTooLongError { length: usize, maximum: usize },
     #[error("Invalid delegation expiry: {0}")]
     InvalidDelegationExpiry(String),
-    #[error("Invalid signature: {0}")]
-    InvalidSignature(String),
-    #[error("Invalid delegation: {0}")]
-    InvalidDelegation(String),
     #[error("Signature is not allowed for the anonymous user.")]
     AnonymousSignatureNotAllowed,
     #[error("Canister '{0}' is not one of the delegation targets.")]
@@ -249,12 +215,67 @@ fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
     None
 }
 
+pub fn sign_msg_to_headers(
+    identity: impl Identity,
+    headers: &mut HeaderMap,
+    msg: &[u8],
+) -> Result<(), String> {
+    sign_digest_to_headers(identity, headers, &sha3_256(msg))
+}
+
+pub fn sign_digest_to_headers(
+    identity: impl Identity,
+    headers: &mut HeaderMap,
+    digest: &[u8],
+) -> Result<(), String> {
+    let sig = identity
+        .sign_arbitrary(digest)
+        .map_err(|err| format!("{:?}", err))?;
+    headers.insert(
+        &HEADER_IC_TEE_PUBKEY,
+        URL_SAFE_NO_PAD
+            .encode(
+                sig.public_key
+                    .ok_or_else(|| "missing public_key".to_string())?,
+            )
+            .parse()
+            .map_err(|err| format!("insert {HEADER_IC_TEE_PUBKEY} header failed: {err}"))?,
+    );
+    headers.insert(
+        &HEADER_IC_TEE_CONTENT_DIGEST,
+        URL_SAFE_NO_PAD
+            .encode(digest)
+            .parse()
+            .map_err(|err| format!("insert {HEADER_IC_TEE_CONTENT_DIGEST} header failed: {err}"))?,
+    );
+    headers.insert(
+        &HEADER_IC_TEE_SIGNATURE,
+        URL_SAFE_NO_PAD
+            .encode(
+                sig.signature
+                    .ok_or_else(|| "missing signature".to_string())?,
+            )
+            .parse()
+            .map_err(|err| format!("insert {HEADER_IC_TEE_SIGNATURE} header failed: {err}"))?,
+    );
+    if let Some(delegations) = sig.delegations {
+        headers.insert(
+            &HEADER_IC_TEE_DELEGATION,
+            URL_SAFE_NO_PAD
+                .encode(to_cbor_bytes(&delegations))
+                .parse()
+                .map_err(|err| format!("insert {HEADER_IC_TEE_DELEGATION} header failed: {err}"))?,
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ic_sig_verifier::verify_sig;
     use ed25519_consensus::SigningKey;
     use ic_agent::{identity::BasicIdentity, Identity};
-    use ic_cose_types::{cose::sha3_256, to_cbor_bytes};
     use structured_logger::unix_ms;
 
     #[test]
@@ -266,46 +287,17 @@ mod tests {
         // jjn6g-sh75l-r3cxb-wxrkl-frqld-6p6qq-d4ato-wske5-op7s5-n566f-bqe
 
         let msg = b"hello world";
-        let digest = sha3_256(msg);
-        let sig = id.sign_arbitrary(digest.as_slice()).unwrap();
-        println!("{:?}", sig);
         let mut headers = HeaderMap::new();
-        headers.insert(
-            &HEADER_IC_TEE_PUBKEY,
-            URL_SAFE_NO_PAD
-                .encode(sig.public_key.unwrap())
-                .parse()
-                .unwrap(),
-        );
-        headers.insert(
-            &HEADER_IC_TEE_CONTENT_DIGEST,
-            URL_SAFE_NO_PAD.encode(digest).parse().unwrap(),
-        );
-        headers.insert(
-            &HEADER_IC_TEE_SIGNATURE,
-            URL_SAFE_NO_PAD
-                .encode(sig.signature.unwrap())
-                .parse()
-                .unwrap(),
-        );
-        if let Some(delegations) = sig.delegations {
-            headers.insert(
-                &HEADER_IC_TEE_DELEGATION,
-                URL_SAFE_NO_PAD
-                    .encode(to_cbor_bytes(&delegations))
-                    .parse()
-                    .unwrap(),
-            );
-        }
+        sign_msg_to_headers(id, &mut headers, msg).unwrap();
 
         let mut us = UserSignature::try_from(&headers).unwrap();
         assert!(us
-            .validate_request(unix_ms(), Principal::anonymous())
+            .verify_with(Principal::anonymous(), unix_ms(), verify_sig)
             .is_ok());
 
         us.digest = sha3_256(b"hello world 2").to_vec();
         assert!(us
-            .validate_request(unix_ms(), Principal::anonymous())
+            .verify_with(Principal::anonymous(), unix_ms(), verify_sig)
             .is_err());
     }
 }
