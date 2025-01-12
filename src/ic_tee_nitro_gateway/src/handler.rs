@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::{header, uri::Uri, StatusCode},
+    http::{header, uri::Uri, HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use ciborium::from_reader;
@@ -13,20 +13,26 @@ use ic_cose_types::{
 use ic_tee_agent::{
     agent::TEEAgent,
     http::{
-        Content, UserSignature, ANONYMOUS_PRINCIPAL, HEADER_IC_TEE_CALLER,
+        sign_digest_to_headers, Content, UserSignature, ANONYMOUS_PRINCIPAL, HEADER_IC_TEE_CALLER,
         HEADER_IC_TEE_CONTENT_DIGEST, HEADER_IC_TEE_DELEGATION, HEADER_IC_TEE_ID,
-        HEADER_IC_TEE_INSTANCE, HEADER_IC_TEE_PUBKEY, HEADER_IC_TEE_SIGNATURE,
-        HEADER_X_FORWARDED_FOR, HEADER_X_FORWARDED_HOST, HEADER_X_FORWARDED_PROTO,
+        HEADER_IC_TEE_INSTANCE, HEADER_IC_TEE_PUBKEY, HEADER_IC_TEE_SESSION,
+        HEADER_IC_TEE_SIGNATURE, HEADER_X_FORWARDED_FOR, HEADER_X_FORWARDED_HOST,
+        HEADER_X_FORWARDED_PROTO,
     },
     RPCRequest, RPCResponse,
 };
 use ic_tee_cdk::{
-    CanisterRequest, TEEAppInformation, TEEAppInformationJSON, TEEAttestation, TEEAttestationJSON,
+    AttestationUserRequest, CanisterRequest, TEEAppInformation, TEEAppInformationJSON,
+    TEEAttestation, TEEAttestationJSON,
 };
 use ic_tee_nitro_attestation::AttestationRequest;
 use serde_bytes::{ByteArray, ByteBuf};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 use structured_logger::unix_ms;
+use tokio::sync::RwLock;
 
 use crate::{attestation::sign_attestation, crypto, ic_sig_verifier::verify_sig, TEE_KIND};
 
@@ -39,6 +45,7 @@ pub struct AppState {
     tee_agent: Arc<TEEAgent>,
     root_secret: [u8; 48],
     upstream_port: Option<u16>,
+    sessions: Arc<RwLock<BTreeMap<String, Option<String>>>>,
 }
 
 impl AppState {
@@ -47,18 +54,62 @@ impl AppState {
         tee_agent: Arc<TEEAgent>,
         root_secret: [u8; 48],
         upstream_port: Option<u16>,
+        apps: Vec<String>,
     ) -> Self {
         let http_client = Arc::new(
             hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
                 .build(HttpConnector::new()),
         );
+        let mut sessions = BTreeMap::new();
+
+        // initialize apps session with empty values
+        for app in apps {
+            for s in app.split(&[',', ' ', ';'][..]) {
+                sessions.insert(s.trim().to_ascii_lowercase(), None);
+            }
+        }
         Self {
             info,
             http_client,
             tee_agent,
             root_secret,
             upstream_port,
+            sessions: Arc::new(RwLock::new(sessions)),
         }
+    }
+
+    pub async fn valid_session(&self, header: &HeaderMap) -> bool {
+        let sessions = self.sessions.read().await;
+        if sessions.is_empty() {
+            return true;
+        }
+
+        if let Some(sess) = header.get(&HEADER_IC_TEE_SESSION) {
+            if let Ok(sess) = sess.to_str() {
+                let sess: Vec<&str> = sess.split("-").collect();
+                return sess.len() == 2
+                    && sessions
+                        .get(sess[0])
+                        .is_some_and(|v| v.as_ref().is_some_and(|v| v == sess[1]));
+            }
+        }
+
+        false
+    }
+
+    pub async fn register_session(&self, app: String) -> Option<String> {
+        let mut sessions = self.sessions.write().await;
+        // app should be registered at bootstrap
+        if let Some(sess) = sessions.get_mut(&app) {
+            // app session should not be registered
+            if sess.is_none() {
+                let session = format!("{}-{}", app, unix_ms());
+                *sess = Some(session.clone());
+                return Some(session);
+            }
+        }
+        // register session failed
+        None
     }
 
     pub fn a256gcm_key(&self, derivation_path: Vec<ByteBuf>) -> ByteArray<32> {
@@ -219,11 +270,19 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
 
 /// local_server: POST /attestation
 pub async fn local_sign_attestation(
-    State(_app): State<AppState>,
-    ct: Content<AttestationRequest>,
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    cr: Content<AttestationUserRequest<ByteBuf>>,
 ) -> impl IntoResponse {
-    match ct {
-        Content::CBOR(req, _) => match sign_attestation(req) {
+    if !app.valid_session(&headers).await {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    match cr {
+        Content::CBOR(req, _) => match sign_attestation(AttestationRequest {
+            user_data: Some(ByteBuf::from(to_cbor_bytes(&req))),
+            ..Default::default()
+        }) {
             Ok(doc) => Content::CBOR(
                 TEEAttestation {
                     kind: TEE_KIND.to_string(),
@@ -236,7 +295,10 @@ pub async fn local_sign_attestation(
                 Content::Text::<()>(err, Some(StatusCode::INTERNAL_SERVER_ERROR)).into_response()
             }
         },
-        Content::JSON(req, _) => match sign_attestation(req) {
+        Content::JSON(req, _) => match sign_attestation(AttestationRequest {
+            user_data: Some(ByteBuf::from(to_cbor_bytes(&req))),
+            ..Default::default()
+        }) {
             Ok(doc) => Content::JSON(
                 TEEAttestationJSON {
                     kind: TEE_KIND.to_string(),
@@ -256,8 +318,12 @@ pub async fn local_sign_attestation(
 /// local_server: POST /canister/query
 pub async fn local_query_canister(
     State(app): State<AppState>,
+    headers: HeaderMap,
     ct: Content<CanisterRequest>,
 ) -> impl IntoResponse {
+    if !app.valid_session(&headers).await {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
     match ct {
         Content::CBOR(req, _) => {
             if forbid_canister_request(&req, app.info.as_ref()) {
@@ -276,8 +342,13 @@ pub async fn local_query_canister(
 /// local_server: POST /canister/update
 pub async fn local_update_canister(
     State(app): State<AppState>,
+    headers: HeaderMap,
     ct: Content<CanisterRequest>,
 ) -> impl IntoResponse {
+    if !app.valid_session(&headers).await {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
     match ct {
         Content::CBOR(req, _) => {
             if forbid_canister_request(&req, app.info.as_ref()) {
@@ -296,11 +367,35 @@ pub async fn local_update_canister(
 /// local_server: POST /keys
 pub async fn local_call_keys(
     State(app): State<AppState>,
+    headers: HeaderMap,
+    ct: Content<RPCRequest>,
+) -> impl IntoResponse {
+    if !app.valid_session(&headers).await {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    match ct {
+        Content::CBOR(req, _) => {
+            let res = handle_keys_request(&req, &app);
+            Content::CBOR(res, None).into_response()
+        }
+        _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
+    }
+}
+
+/// local_server: POST /identity
+pub async fn local_call_identity(
+    State(app): State<AppState>,
+    headers: HeaderMap,
     ct: Content<RPCRequest>,
 ) -> impl IntoResponse {
     match ct {
         Content::CBOR(req, _) => {
-            let res = handle_keys_request(&req, &app);
+            if req.method != "register_session" && !app.valid_session(&headers).await {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+
+            let res = handle_identity_request(&req, &app).await;
             Content::CBOR(res, None).into_response()
         }
         _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
@@ -396,6 +491,32 @@ pub async fn proxy(
             err.to_string(),
             Some(StatusCode::BAD_REQUEST),
         )),
+    }
+}
+
+async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCResponse {
+    match req.method.as_str() {
+        "sign_http" => {
+            let digest: ByteArray<32> = from_reader(req.params.as_slice()).map_err(format_error)?;
+            let mut headers = HeaderMap::new();
+            app.tee_agent
+                .with_identity(|id| sign_digest_to_headers(id, &mut headers, digest.as_slice()))
+                .await?;
+            let headers: HashMap<&str, &str> = headers
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.to_str().unwrap()))
+                .collect();
+            Ok(to_cbor_bytes(&headers).into())
+        }
+        "register_session" => {
+            let name: String = from_reader(req.params.as_slice()).map_err(format_error)?;
+            if let Some(sess) = app.register_session(name).await {
+                Ok(to_cbor_bytes(&sess).into())
+            } else {
+                Err("register session failed".to_string())
+            }
+        }
+        _ => Err(format!("unsupported method {}", req.method)),
     }
 }
 

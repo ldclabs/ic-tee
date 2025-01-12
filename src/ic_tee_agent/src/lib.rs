@@ -20,5 +20,11 @@ pub struct RPCRequest {
     pub params: ByteBuf, // params should be encoded in CBOR format
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct RPCRequestRef<'a> {
+    pub method: &'a str,
+    pub params: &'a ByteBuf,
+}
+
 // result should be encoded in CBOR format
 pub type RPCResponse = Result<ByteBuf, String>;

@@ -143,6 +143,45 @@ impl TEEIdentity {
     }
 }
 
+impl Identity for &TEEIdentity {
+    fn sender(&self) -> Result<Principal, String> {
+        match &self.identity {
+            InnerIdentity::Anonymous(id) => id.sender(),
+            InnerIdentity::Delegated(id) => id.sender(),
+        }
+    }
+    fn public_key(&self) -> Option<Vec<u8>> {
+        match &self.identity {
+            InnerIdentity::Anonymous(id) => id.public_key(),
+            InnerIdentity::Delegated(id) => id.public_key(),
+        }
+    }
+    fn sign(&self, content: &EnvelopeContent) -> Result<Signature, String> {
+        match &self.identity {
+            InnerIdentity::Anonymous(id) => id.sign(content),
+            InnerIdentity::Delegated(id) => id.sign(content),
+        }
+    }
+    fn sign_delegation(&self, content: &Delegation) -> Result<Signature, String> {
+        match &self.identity {
+            InnerIdentity::Anonymous(id) => id.sign_delegation(content),
+            InnerIdentity::Delegated(id) => id.sign_delegation(content),
+        }
+    }
+    fn sign_arbitrary(&self, content: &[u8]) -> Result<Signature, String> {
+        match &self.identity {
+            InnerIdentity::Anonymous(id) => id.sign_arbitrary(content),
+            InnerIdentity::Delegated(id) => id.sign_arbitrary(content),
+        }
+    }
+    fn delegation_chain(&self) -> Vec<SignedDelegation> {
+        match &self.identity {
+            InnerIdentity::Anonymous(id) => id.delegation_chain(),
+            InnerIdentity::Delegated(id) => id.delegation_chain(),
+        }
+    }
+}
+
 impl Identity for TEEIdentity {
     fn sender(&self) -> Result<Principal, String> {
         match &self.identity {

@@ -77,6 +77,9 @@ struct Cli {
     #[clap(long)]
     upstream_port: Option<u16>,
 
+    #[clap(long, default_value = "dTEE")]
+    apps: Vec<String>,
+
     /// where the logtail server is running on host (e.g. 127.0.0.1:9999)
     #[clap(long)]
     bootstrap_logtail: Option<String>,
@@ -309,11 +312,13 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                 routing::post(handler::local_update_canister),
             )
             .route("/keys", routing::post(handler::local_call_keys))
+            .route("/identity", routing::post(handler::local_call_identity))
             .with_state(handler::AppState::new(
                 info.clone(),
                 tee_agent.clone(),
                 root_secret,
                 None,
+                cli.apps,
             ));
         let addr: SocketAddr = LOCAL_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
         let listener = tokio::net::TcpListener::bind(&addr)
@@ -344,6 +349,7 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                 tee_agent.clone(),
                 [0u8; 48],
                 None,
+                Vec::new(),
             ));
         let addr: SocketAddr = PUBLIC_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
 

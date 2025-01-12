@@ -32,6 +32,9 @@ pub static HEADER_IC_TEE_INSTANCE: HeaderName = HeaderName::from_static("ic-tee-
 /// Authenticated caller principal (or anonymous principal)
 pub static HEADER_IC_TEE_CALLER: HeaderName = HeaderName::from_static("ic-tee-caller");
 
+/// TEE session ID that client should provide in subsequent requests
+pub static HEADER_IC_TEE_SESSION: HeaderName = HeaderName::from_static("ic-tee-session");
+
 /// The `UserSignature` struct represents an end user's signature and provides methods to
 /// parse and validate the signature from HTTP headers.
 ///

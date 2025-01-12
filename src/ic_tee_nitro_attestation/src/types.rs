@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::collections::BTreeMap;
 
-#[derive(CandidType, Debug, Default, Serialize, Deserialize, Copy, Clone, PartialEq)]
+#[derive(CandidType, Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 pub enum Digest {
     /// SHA256
     SHA256,
@@ -15,7 +15,7 @@ pub enum Digest {
 }
 
 /// An attestation response.  This is also used for sealing data.
-#[derive(CandidType, Serialize, Default, Deserialize, Debug, Clone, PartialEq)]
+#[derive(CandidType, Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 pub struct Attestation {
     /// Issuing NSM ID
     pub module_id: String,
@@ -46,7 +46,7 @@ pub struct Attestation {
     pub nonce: Option<ByteBuf>,
 }
 
-#[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(CandidType, Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 pub struct AttestationRequest {
     pub public_key: Option<ByteBuf>,
     pub user_data: Option<ByteBuf>,

@@ -1,7 +1,7 @@
 use candid::Principal;
 use ciborium::into_writer;
 use ed25519_consensus::SigningKey;
-use ic_agent::Agent;
+use ic_agent::{Agent, Identity, Signature};
 use ic_cose::{
     agent::{query_call, update_call},
     client::Client,
@@ -75,6 +75,10 @@ impl TEEAgent {
 
     pub async fn is_authenticated(&self) -> bool {
         self.agents.read().await.identity.is_authenticated()
+    }
+
+    pub async fn with_identity<R>(&self, f: impl FnOnce(&TEEIdentity) -> R) -> R {
+        f(&self.agents.read().await.identity)
     }
 
     pub async fn set_identity(&self, identity: &BasicIdentity, expires_in_ms: u64) {
