@@ -1,7 +1,7 @@
 use candid::Principal;
 use ciborium::into_writer;
 use ed25519_consensus::SigningKey;
-use ic_agent::{Agent, Identity, Signature};
+use ic_agent::Agent;
 use ic_cose::{
     agent::{query_call, update_call},
     client::Client,

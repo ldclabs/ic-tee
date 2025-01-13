@@ -103,7 +103,7 @@ impl AppState {
         if let Some(sess) = sessions.get_mut(&app) {
             // app session should not be registered
             if sess.is_none() {
-                let session = format!("{}-{}", app, unix_ms());
+                let session = format!("{}-{}", app, xid::new());
                 *sess = Some(session.clone());
                 return Some(session);
             }

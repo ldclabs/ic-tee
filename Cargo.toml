@@ -82,6 +82,7 @@ reqwest = { version = "0.12", features = [
 ], default-features = true }
 libc = "0.2"
 thiserror = "2"
+xid = "1.1"
 ic-types = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
 ic-crypto-standalone-sig-verifier = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
 ic-crypto-secp256k1 = { git = "https://github.com/dfinity/ic/", rev = "5d202894864f4db4a5a46f44422aebc80c3d321b" }
