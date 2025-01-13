@@ -46,6 +46,9 @@ static LOCAL_HTTP_ADDR: &str = "127.0.0.1:8080";
 static PUBLIC_HTTP_ADDR: &str = "127.0.0.1:8443";
 static LOG_TARGET: &str = "bootstrap";
 
+const PUBLIC_SERVER_GRACEFUL_DURATION: Duration = Duration::from_secs(3);
+const LOCAL_SERVER_SHUTDOWN_DURATION: Duration = Duration::from_secs(5);
+
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
@@ -123,7 +126,7 @@ async fn main() -> Result<()> {
 
 async fn bootstrap(cli: Cli) -> Result<()> {
     let start = Instant::now();
-    let is_local = cli.ic_host.starts_with("http://");
+    let is_dev = cli.ic_host.starts_with("http://");
 
     // https://github.com/rustls/rustls/issues/1938
     rustls::crypto::ring::default_provider()
@@ -134,7 +137,7 @@ async fn bootstrap(cli: Cli) -> Result<()> {
         .map_err(|err| anyhow::anyhow!("invalid identity_canister id: {}", err))?;
     let cose_canister = Principal::from_text(cli.cose_canister)
         .map_err(|err| anyhow::anyhow!("invalid cose_canister id: {}", err))?;
-    let tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister)
+    let mut tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister)
         .await
         .map_err(anyhow::Error::msg)?;
 
@@ -149,13 +152,12 @@ async fn bootstrap(cli: Cli) -> Result<()> {
         }),
     });
 
-    let attestation = if is_local {
+    let attestation = if is_dev {
         // use a fixed identity for local development
         let sk = SigningKey::from([8u8; 32]);
         let id = BasicIdentity::from_signing_key(sk);
         // jjn6g-sh75l-r3cxb-wxrkl-frqld-6p6qq-d4ato-wske5-op7s5-n566f-bqe
-
-        tee_agent.set_identity(&id, SESSION_EXPIRES_IN_MS).await;
+        tee_agent = tee_agent.with_identity(id, SESSION_EXPIRES_IN_MS);
 
         Attestation {
             timestamp: unix_ms(),
@@ -184,7 +186,7 @@ async fn bootstrap(cli: Cli) -> Result<()> {
             elapsed = start.elapsed().as_millis() as u64;
             "parse_and_verify attestation for sign in, module_id: {:?}", attestation.module_id);
 
-        tee_agent
+        tee_agent = tee_agent
             .sign_in_with_attestation(session_key.clone(), || {
                 Ok((TEE_KIND.to_string(), doc.into()))
             })
@@ -195,25 +197,25 @@ async fn bootstrap(cli: Cli) -> Result<()> {
 
     log::info!(target: LOG_TARGET,
         elapsed = start.elapsed().as_millis() as u64;
-       "sign_in, principal: {:?}", tee_agent.get_principal().await.to_text());
+       "sign_in, principal: {:?}", tee_agent.get_principal().to_text());
 
     // upgrade to a permanent identity
     let upgrade_identity = if let Some(ref name) = cli.cose_identity_name {
         log::info!(target: LOG_TARGET, "start to cose_upgrade_identity");
-        tee_agent
+        tee_agent = tee_agent
             .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
             .await
             .map_err(anyhow::Error::msg)?;
 
         log::info!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
-            "upgrade to fixed identity, namespace: {}, name: {}, principal: {:?}", namespace, name, tee_agent.get_principal().await.to_text());
+            "upgrade to fixed identity, namespace: {}, name: {}, principal: {:?}", namespace, name, tee_agent.get_principal().to_text());
         Some(name.clone())
     } else {
         None
     };
 
-    let principal = tee_agent.get_principal().await;
+    let principal = tee_agent.get_principal();
     log::info!(target: LOG_TARGET, "start to get master_secret");
     // should replace with vetkey in the future
     let master_secret = tee_agent
@@ -254,17 +256,63 @@ async fn bootstrap(cli: Cli) -> Result<()> {
         "TEE app information, principal: {:?}", principal.to_text());
 
     let info = Arc::new(info);
-    let tee_agent = Arc::new(tee_agent);
-    let handle = axum_server::Handle::new();
-    let cancel_token = CancellationToken::new();
-    let shutdown_future = shutdown_signal(handle.clone(), cancel_token.clone());
+    let global_cancel_token = CancellationToken::new();
+    let shutdown_future = shutdown_signal(global_cancel_token.clone());
 
-    // 24 hours - 10 minutes
-    let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 10;
-    let refresh_identity = async {
+    // 24 hours - 30 minutes
+    let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 30;
+    let task = async {
+        let mut prev_server_cancel_token: Option<CancellationToken> = None;
         loop {
+            let server_cancel_token = global_cancel_token.child_token();
+            let local_server = start_local_server(
+                handler::AppState::new(
+                    info.clone(),
+                    Arc::new(tee_agent.clone()),
+                    root_secret,
+                    None,
+                    cli.apps.clone(),
+                ),
+                start,
+                server_cancel_token.clone(),
+            );
+
+            let tls_config = if is_dev {
+                None
+            } else {
+                log::info!(target: LOG_TARGET, "start to get_tls");
+                let tls = get_tls(&tee_agent, &start, namespace.clone(), &master_secret).await?;
+                let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
+                    .await
+                    .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
+                Some(config)
+            };
+
+            let public_server = start_public_server(
+                handler::AppState::new(
+                    info.clone(),
+                    Arc::new(tee_agent.clone()),
+                    [0u8; 48],
+                    None,
+                    Vec::new(),
+                ),
+                start,
+                server_cancel_token.clone(),
+                tls_config,
+            );
+
+            tokio::spawn(async move {
+                // TODO: handle errors
+                let _ = tokio::join!(local_server, public_server);
+            });
+
+            if let Some(cancel_token) = prev_server_cancel_token {
+                cancel_token.cancel();
+            }
+            prev_server_cancel_token = Some(server_cancel_token);
+
             tokio::select! {
-                _ = cancel_token.cancelled() => {
+                _ = global_cancel_token.cancelled() => {
                     break;
                 }
                 _ = tokio::time::sleep(Duration::from_millis(refresh_identity_ms)) => {}
@@ -275,12 +323,14 @@ async fn bootstrap(cli: Cli) -> Result<()> {
             // ignore error
             match upgrade_identity {
                 Some(ref name) => {
-                    let _ = tee_agent
+                    // remember to `dfx canister call ic_cose_canister namespace_add_delegator`
+                    tee_agent = tee_agent
                         .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
-                        .await;
+                        .await
+                        .map_err(anyhow::Error::msg)?;
                 }
                 None => {
-                    let _ = tee_agent
+                    tee_agent = tee_agent
                         .sign_in_with_attestation(session_key, || {
                             let doc = sign_attestation(AttestationRequest {
                                 public_key: Some(public_key.into()),
@@ -289,100 +339,15 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                             })?;
                             Ok((TEE_KIND.to_string(), doc.into()))
                         })
-                        .await;
+                        .await
+                        .map_err(anyhow::Error::msg)?;
                 }
             }
         }
         Result::<()>::Ok(())
     };
 
-    let local_server = async {
-        let app = Router::new()
-            .route("/information", routing::get(handler::get_information))
-            .route(
-                "/attestation",
-                routing::get(handler::get_attestation).post(handler::local_sign_attestation),
-            )
-            .route(
-                "/canister/query",
-                routing::post(handler::local_query_canister),
-            )
-            .route(
-                "/canister/update",
-                routing::post(handler::local_update_canister),
-            )
-            .route("/keys", routing::post(handler::local_call_keys))
-            .route("/identity", routing::post(handler::local_call_identity))
-            .with_state(handler::AppState::new(
-                info.clone(),
-                tee_agent.clone(),
-                root_secret,
-                None,
-                cli.apps,
-            ));
-        let addr: SocketAddr = LOCAL_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
-        let listener = tokio::net::TcpListener::bind(&addr)
-            .await
-            .map_err(anyhow::Error::new)?;
-        log::warn!(target: LOG_TARGET,
-            elapsed = start.elapsed().as_millis() as u64;
-            "local {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_future)
-            .await
-            .map_err(anyhow::Error::new)
-    };
-
-    let public_server = async {
-        let app = Router::new()
-            .route(
-                "/.well-known/information",
-                routing::get(handler::get_information),
-            )
-            .route(
-                "/.well-known/attestation",
-                routing::get(handler::get_attestation),
-            )
-            .route("/{*any}", routing::any(handler::proxy))
-            .with_state(handler::AppState::new(
-                info.clone(),
-                tee_agent.clone(),
-                [0u8; 48],
-                None,
-                Vec::new(),
-            ));
-        let addr: SocketAddr = PUBLIC_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
-
-        if is_local {
-            let listener = tokio::net::TcpListener::bind(&addr)
-                .await
-                .map_err(anyhow::Error::new)?;
-            log::warn!(target: LOG_TARGET,
-            elapsed = start.elapsed().as_millis() as u64;
-            "public {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
-            axum::serve(listener, app)
-                .with_graceful_shutdown(shutdown_signal(handle.clone(), cancel_token.clone()))
-                .await
-                .map_err(anyhow::Error::new)
-        } else {
-            log::info!(target: LOG_TARGET, "start to get_tls");
-            let tls = get_tls(&tee_agent, &start, namespace.clone(), &master_secret).await?;
-            let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
-                .await
-                .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
-
-            log::warn!(target: LOG_TARGET,
-            elapsed = start.elapsed().as_millis() as u64;
-            "public {}@{} listening on {:?} with TLS", APP_NAME, APP_VERSION, addr);
-            axum_server::bind_rustls(addr, config)
-                .handle(handle)
-                .serve(app.into_make_service())
-                .await
-                .map_err(anyhow::Error::new)
-        }
-    };
-
-    match tokio::try_join!(refresh_identity, local_server, public_server) {
+    match tokio::try_join!(task, shutdown_future) {
         Ok(_) => Ok(()),
         Err(err) => {
             log::error!(target: LOG_TARGET, "server error: {:?}", err);
@@ -391,7 +356,106 @@ async fn bootstrap(cli: Cli) -> Result<()> {
     }
 }
 
-async fn shutdown_signal(handle: axum_server::Handle, cancel_token: CancellationToken) {
+async fn start_local_server(
+    app_state: handler::AppState,
+    start: Instant,
+    cancel_token: CancellationToken,
+) -> anyhow::Result<()> {
+    let app = Router::new()
+        .route("/information", routing::get(handler::get_information))
+        .route(
+            "/attestation",
+            routing::get(handler::get_attestation).post(handler::local_sign_attestation),
+        )
+        .route(
+            "/canister/query",
+            routing::post(handler::local_query_canister),
+        )
+        .route(
+            "/canister/update",
+            routing::post(handler::local_update_canister),
+        )
+        .route("/keys", routing::post(handler::local_call_keys))
+        .route("/identity", routing::post(handler::local_call_identity))
+        .with_state(app_state);
+
+    let addr: SocketAddr = LOCAL_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
+
+    let listener = create_reuse_port_listener(addr).await?;
+
+    log::warn!(target: LOG_TARGET,
+                elapsed = start.elapsed().as_millis() as u64;
+                "local {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = cancel_token.cancelled().await;
+            tokio::time::sleep(LOCAL_SERVER_SHUTDOWN_DURATION).await;
+        })
+        .await
+        .map_err(anyhow::Error::new)
+}
+
+async fn start_public_server(
+    app_state: handler::AppState,
+    start: Instant,
+    cancel_token: CancellationToken,
+    tls_config: Option<RustlsConfig>,
+) -> anyhow::Result<()> {
+    let app = Router::new()
+        .route(
+            "/.well-known/information",
+            routing::get(handler::get_information),
+        )
+        .route(
+            "/.well-known/attestation",
+            routing::get(handler::get_attestation),
+        )
+        .route("/{*any}", routing::any(handler::proxy))
+        .with_state(app_state);
+    let addr: SocketAddr = PUBLIC_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
+    if let Some(tls_config) = tls_config {
+        log::warn!(target: LOG_TARGET,
+            elapsed = start.elapsed().as_millis() as u64;
+            "public {}@{} listening on {:?} with TLS", APP_NAME, APP_VERSION, addr);
+
+        let handle = axum_server::Handle::new();
+        let res = tokio::join!(
+            async {
+                let listener = create_reuse_port_listener(addr).await?;
+                axum_server::from_tcp_rustls(listener.into_std()?, tls_config)
+                    .handle(handle.clone())
+                    .serve(app.into_make_service())
+                    .await
+                    .map_err(anyhow::Error::new)
+            },
+            async {
+                let _ = cancel_token.cancelled().await;
+                handle.graceful_shutdown(Some(PUBLIC_SERVER_GRACEFUL_DURATION));
+                Result::<()>::Ok(())
+            }
+        );
+        res.0?;
+        res.1?;
+
+        Ok(())
+    } else {
+        log::warn!(target: LOG_TARGET,
+            elapsed = start.elapsed().as_millis() as u64;
+            "public {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
+
+        let listener = create_reuse_port_listener(addr).await?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = cancel_token.cancelled().await;
+                tokio::time::sleep(PUBLIC_SERVER_GRACEFUL_DURATION).await;
+            })
+            .await
+            .map_err(anyhow::Error::new)
+    }
+}
+
+async fn shutdown_signal(cancel_token: CancellationToken) -> anyhow::Result<()> {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -415,9 +479,10 @@ async fn shutdown_signal(handle: axum_server::Handle, cancel_token: Cancellation
     }
 
     log::warn!(target: LOG_TARGET, "received termination signal, starting graceful shutdown");
-    // 10 secs is how long server will wait to force shutdown
-    handle.graceful_shutdown(Some(Duration::from_secs(10)));
     cancel_token.cancel();
+    tokio::time::sleep(LOCAL_SERVER_SHUTDOWN_DURATION).await;
+
+    Ok(())
 }
 
 async fn get_or_set_root_secret(
@@ -502,4 +567,16 @@ async fn get_tls(
             Err(anyhow::anyhow!("get TLS failed: {:?}", err))
         }
     }
+}
+
+async fn create_reuse_port_listener(addr: SocketAddr) -> anyhow::Result<tokio::net::TcpListener> {
+    let socket = match &addr {
+        SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
+        SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
+    };
+
+    socket.set_reuseport(true)?;
+    socket.bind(addr)?;
+    let listener = socket.listen(1024)?;
+    Ok(listener)
 }

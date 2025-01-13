@@ -499,9 +499,7 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
         "sign_http" => {
             let digest: ByteArray<32> = from_reader(req.params.as_slice()).map_err(format_error)?;
             let mut headers = HeaderMap::new();
-            app.tee_agent
-                .with_identity(|id| sign_digest_to_headers(id, &mut headers, digest.as_slice()))
-                .await?;
+            sign_digest_to_headers(&app.tee_agent.identity, &mut headers, digest.as_slice())?;
             let headers: HashMap<&str, &str> = headers
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.to_str().unwrap()))
