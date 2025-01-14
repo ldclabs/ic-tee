@@ -80,8 +80,9 @@ struct Cli {
     #[clap(long)]
     upstream_port: Option<u16>,
 
-    #[clap(long, default_value = "dTEE")]
-    apps: Vec<String>,
+    /// if set, the app should provide basic auth to request local server APIs
+    #[clap(long)]
+    app_basic_auth: Option<String>,
 
     /// where the logtail server is running on host (e.g. 127.0.0.1:9999)
     #[clap(long)]
@@ -271,7 +272,8 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                     Arc::new(tee_agent.clone()),
                     root_secret,
                     None,
-                    cli.apps.clone(),
+                    namespace.clone(),
+                    cli.app_basic_auth.clone(),
                 ),
                 start,
                 server_cancel_token.clone(),
@@ -294,7 +296,8 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                     Arc::new(tee_agent.clone()),
                     [0u8; 48],
                     None,
-                    Vec::new(),
+                    String::new(),
+                    None,
                 ),
                 start,
                 server_cancel_token.clone(),

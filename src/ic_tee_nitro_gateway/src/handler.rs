@@ -8,16 +8,15 @@ use ciborium::from_reader;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use ic_cose_types::{
     format_error, to_cbor_bytes,
-    types::{ECDHInput, ECDHOutput},
+    types::{ECDHInput, ECDHOutput, SettingPath},
 };
 use ic_tee_agent::{
     agent::TEEAgent,
     http::{
         sign_digest_to_headers, Content, UserSignature, ANONYMOUS_PRINCIPAL, HEADER_IC_TEE_CALLER,
         HEADER_IC_TEE_CONTENT_DIGEST, HEADER_IC_TEE_DELEGATION, HEADER_IC_TEE_ID,
-        HEADER_IC_TEE_INSTANCE, HEADER_IC_TEE_PUBKEY, HEADER_IC_TEE_SESSION,
-        HEADER_IC_TEE_SIGNATURE, HEADER_X_FORWARDED_FOR, HEADER_X_FORWARDED_HOST,
-        HEADER_X_FORWARDED_PROTO,
+        HEADER_IC_TEE_INSTANCE, HEADER_IC_TEE_PUBKEY, HEADER_IC_TEE_SIGNATURE,
+        HEADER_X_FORWARDED_FOR, HEADER_X_FORWARDED_HOST, HEADER_X_FORWARDED_PROTO,
     },
     RPCRequest, RPCResponse,
 };
@@ -27,12 +26,8 @@ use ic_tee_cdk::{
 };
 use ic_tee_nitro_attestation::AttestationRequest;
 use serde_bytes::{ByteArray, ByteBuf};
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use structured_logger::unix_ms;
-use tokio::sync::RwLock;
 
 use crate::{attestation::sign_attestation, crypto, ic_sig_verifier::verify_sig, TEE_KIND};
 
@@ -45,7 +40,8 @@ pub struct AppState {
     tee_agent: Arc<TEEAgent>,
     root_secret: [u8; 48],
     upstream_port: Option<u16>,
-    sessions: Arc<RwLock<BTreeMap<String, Option<String>>>>,
+    cose_namespace: String,
+    app_basic_auth: Option<String>,
 }
 
 impl AppState {
@@ -54,62 +50,35 @@ impl AppState {
         tee_agent: Arc<TEEAgent>,
         root_secret: [u8; 48],
         upstream_port: Option<u16>,
-        apps: Vec<String>,
+        cose_namespace: String,
+        app_basic_auth: Option<String>,
     ) -> Self {
         let http_client = Arc::new(
             hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
                 .build(HttpConnector::new()),
         );
-        let mut sessions = BTreeMap::new();
 
-        // initialize apps session with empty values
-        for app in apps {
-            for s in app.split(&[',', ' ', ';'][..]) {
-                sessions.insert(s.trim().to_ascii_lowercase(), None);
-            }
-        }
         Self {
             info,
             http_client,
             tee_agent,
             root_secret,
             upstream_port,
-            sessions: Arc::new(RwLock::new(sessions)),
+            cose_namespace,
+            app_basic_auth,
         }
     }
 
-    pub async fn valid_session(&self, header: &HeaderMap) -> bool {
-        let sessions = self.sessions.read().await;
-        if sessions.is_empty() {
-            return true;
-        }
-
-        if let Some(sess) = header.get(&HEADER_IC_TEE_SESSION) {
-            if let Ok(sess) = sess.to_str() {
-                let sess: Vec<&str> = sess.split("-").collect();
-                return sess.len() == 2
-                    && sessions
-                        .get(sess[0])
-                        .is_some_and(|v| v.as_ref().is_some_and(|v| v == sess[1]));
+    pub fn valid_session(&self, headers: &HeaderMap) -> bool {
+        if let Some(app_basic_auth) = &self.app_basic_auth {
+            if let Some(token) = headers.get(header::AUTHORIZATION) {
+                if let Ok(token) = token.to_str() {
+                    return token.trim_start_matches("Basic ") == app_basic_auth;
+                }
             }
+            return false;
         }
-
-        false
-    }
-
-    pub async fn register_session(&self, app: String) -> Option<String> {
-        let mut sessions = self.sessions.write().await;
-        // app should be registered at bootstrap
-        if let Some(sess) = sessions.get_mut(&app) {
-            // app session should not be registered
-            if sess.is_none() {
-                let session = format!("{}-{}", app, xid::new());
-                *sess = Some(session.clone());
-                return Some(session);
-            }
-        }
-        // register session failed
-        None
+        true
     }
 
     pub fn a256gcm_key(&self, derivation_path: Vec<ByteBuf>) -> ByteArray<32> {
@@ -274,7 +243,7 @@ pub async fn local_sign_attestation(
     headers: HeaderMap,
     cr: Content<AttestationUserRequest<ByteBuf>>,
 ) -> impl IntoResponse {
-    if !app.valid_session(&headers).await {
+    if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
@@ -321,12 +290,13 @@ pub async fn local_query_canister(
     headers: HeaderMap,
     ct: Content<CanisterRequest>,
 ) -> impl IntoResponse {
-    if !app.valid_session(&headers).await {
+    if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
+
     match ct {
         Content::CBOR(req, _) => {
-            if forbid_canister_request(&req, app.info.as_ref()) {
+            if forbid_canister_request(&app.cose_namespace, &req, app.info.as_ref()) {
                 return StatusCode::FORBIDDEN.into_response();
             }
             let res = app
@@ -345,13 +315,13 @@ pub async fn local_update_canister(
     headers: HeaderMap,
     ct: Content<CanisterRequest>,
 ) -> impl IntoResponse {
-    if !app.valid_session(&headers).await {
+    if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
     match ct {
         Content::CBOR(req, _) => {
-            if forbid_canister_request(&req, app.info.as_ref()) {
+            if forbid_canister_request(&app.cose_namespace, &req, app.info.as_ref()) {
                 return StatusCode::FORBIDDEN.into_response();
             }
             let res = app
@@ -370,7 +340,7 @@ pub async fn local_call_keys(
     headers: HeaderMap,
     ct: Content<RPCRequest>,
 ) -> impl IntoResponse {
-    if !app.valid_session(&headers).await {
+    if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
@@ -389,12 +359,12 @@ pub async fn local_call_identity(
     headers: HeaderMap,
     ct: Content<RPCRequest>,
 ) -> impl IntoResponse {
+    if !app.valid_session(&headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
     match ct {
         Content::CBOR(req, _) => {
-            if req.method != "register_session" && !app.valid_session(&headers).await {
-                return StatusCode::UNAUTHORIZED.into_response();
-            }
-
             let res = handle_identity_request(&req, &app).await;
             Content::CBOR(res, None).into_response()
         }
@@ -497,7 +467,8 @@ pub async fn proxy(
 async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCResponse {
     match req.method.as_str() {
         "sign_http" => {
-            let digest: ByteArray<32> = from_reader(req.params.as_slice()).map_err(format_error)?;
+            let (digest,): (ByteArray<32>,) =
+                from_reader(req.params.as_slice()).map_err(format_error)?;
             let mut headers = HeaderMap::new();
             sign_digest_to_headers(&app.tee_agent.identity, &mut headers, digest.as_slice())?;
             let headers: HashMap<&str, &str> = headers
@@ -505,14 +476,6 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
                 .map(|(k, v)| (k.as_str(), v.to_str().unwrap()))
                 .collect();
             Ok(to_cbor_bytes(&headers).into())
-        }
-        "register_session" => {
-            let name: String = from_reader(req.params.as_slice()).map_err(format_error)?;
-            if let Some(sess) = app.register_session(name).await {
-                Ok(to_cbor_bytes(&sess).into())
-            } else {
-                Err("register session failed".to_string())
-            }
         }
         _ => Err(format!("unsupported method {}", req.method)),
     }
@@ -566,16 +529,46 @@ fn handle_keys_request(req: &RPCRequest, app: &AppState) -> RPCResponse {
     }
 }
 
-fn forbid_canister_request(req: &CanisterRequest, info: &TEEAppInformation) -> bool {
+fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInformation) -> bool {
     if req.canister == info.identity_canister {
         return true;
     }
 
     if req.canister == info.cose_canister {
-        return matches!(
+        if matches!(
             req.method.as_str(),
             "namespace_sign_delegation" | "get_delegation"
-        );
+        ) {
+            return true;
+        }
+
+        let path = match req.method.as_str() {
+            "ecdh_cose_encrypted_key" => {
+                let res: Result<(SettingPath, ECDHInput), _> = from_reader(req.params.as_slice());
+                match res {
+                    Ok((path, _)) => path,
+                    _ => return true,
+                }
+            }
+            "vetkd_public_key" => {
+                let res: Result<(SettingPath,), _> = from_reader(req.params.as_slice());
+                match res {
+                    Ok((path,)) => path,
+                    _ => return true,
+                }
+            }
+            "vetkd_encrypted_key" => {
+                let res: Result<(SettingPath, ByteArray<48>), _> =
+                    from_reader(req.params.as_slice());
+                match res {
+                    Ok((path, _)) => path,
+                    _ => return true,
+                }
+            }
+            _ => return true,
+        };
+
+        return path.ns == ns;
     }
 
     false

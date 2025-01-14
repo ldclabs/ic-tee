@@ -135,11 +135,12 @@ dependencies = [
 
 [[package]]
 name = "anstyle-wincon"
-version = "3.0.6"
+version = "3.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2109dbce0e72be3ec00bed26e6a7479ca384ad226efdd66db8fa2e3a38c83125"
+checksum = "ca3534e77181a9cc07539ad51f2141fe32f6c3ffd4df76db8ad92346b003ae4e"
 dependencies = [
  "anstyle",
+ "once_cell",
  "windows-sys 0.59.0",
 ]
 
@@ -2438,9 +2439,9 @@ dependencies = [
 
 [[package]]
 name = "ic_cose"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c05177c8346afdfff6d2ed0af2cc99d86b542e4c9cb45db0b5a0b30f4264c1db"
+checksum = "95d8480dbd8da8bd8f98733d9583f5cbbc7954d107bc2be5387be43ade8b5446"
 dependencies = [
  "candid",
  "ic-agent",
@@ -2452,9 +2453,9 @@ dependencies = [
 
 [[package]]
 name = "ic_cose_types"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1f490544a49dae44c43901a48c22f076466842df17bf54eae22c1ada170ab4e"
+checksum = "76b1e092ca96187a24196ee855a237fe44ae67c62ead0b2f19f82512abf60f2a"
 dependencies = [
  "aes-gcm",
  "candid",
@@ -2491,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_agent"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "axum-core",
  "base64 0.22.1",
@@ -2519,7 +2520,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cdk"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "candid",
  "ciborium",
@@ -2531,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cli"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "candid",
@@ -2554,7 +2555,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_host_daemon"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -2567,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_identity"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "candid",
  "ciborium",
@@ -2585,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_logtail"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -2596,7 +2597,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_attestation"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "candid",
  "ciborium",
@@ -2612,7 +2613,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_gateway"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "aws-nitro-enclaves-nsm-api",
@@ -3065,9 +3066,9 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniz_oxide"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ffbe83022cedc1d264172192511ae958937694cd57ce297164951b8b3568394"
+checksum = "b8402cab7aefae129c6977bb0ff1b8fd9a04eb5b51efc50a70bea51cda0c7924"
 dependencies = [
  "adler2",
 ]
