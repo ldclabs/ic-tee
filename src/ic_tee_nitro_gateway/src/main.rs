@@ -5,7 +5,7 @@ use candid::Principal;
 use clap::Parser;
 use ed25519_consensus::SigningKey;
 use ic_agent::identity::BasicIdentity;
-use ic_cose::rand_bytes;
+use ic_cose::{client::CoseSDK, rand_bytes};
 use ic_cose_types::types::{setting::CreateSettingInput, SettingPath};
 use ic_tee_agent::{
     agent::TEEAgent,
@@ -82,7 +82,7 @@ struct Cli {
 
     /// if set, the app should provide basic auth to request local server APIs
     #[clap(long)]
-    app_basic_auth: Option<String>,
+    app_basic_token: Option<String>,
 
     /// where the logtail server is running on host (e.g. 127.0.0.1:9999)
     #[clap(long)]
@@ -220,9 +220,10 @@ async fn bootstrap(cli: Cli) -> Result<()> {
     log::info!(target: LOG_TARGET, "start to get master_secret");
     // should replace with vetkey in the future
     let master_secret = tee_agent
-        .cose_get_secret(&SettingPath {
+        .get_cose_encrypted_key(&SettingPath {
             ns: namespace.clone(),
             key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
+            subject: Some(principal),
             ..Default::default()
         })
         .await
@@ -273,7 +274,7 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                     root_secret,
                     None,
                     namespace.clone(),
-                    cli.app_basic_auth.clone(),
+                    cli.app_basic_token.clone(),
                 ),
                 start,
                 server_cancel_token.clone(),
@@ -501,7 +502,7 @@ async fn get_or_set_root_secret(
         ..Default::default()
     };
 
-    let setting = tee_agent.cose_get_setting(&path).await;
+    let setting = tee_agent.setting_get(&path).await;
     let setting = match setting {
         Ok(setting) => setting,
         Err(err) => {
@@ -512,7 +513,7 @@ async fn get_or_set_root_secret(
                 .map_err(anyhow::Error::msg)?;
             // ignore error because it may already exist
             let res = tee_agent
-                .cose_create_setting(
+                .setting_create(
                     &path,
                     &CreateSettingInput {
                         payload: Some(payload.into()),
@@ -528,7 +529,7 @@ async fn get_or_set_root_secret(
 
             // fetch again
             tee_agent
-                .cose_get_setting(&path)
+                .setting_get(&path)
                 .await
                 .map_err(anyhow::Error::msg)?
         }
@@ -556,7 +557,7 @@ async fn get_tls(
         key: SETTING_KEY_TLS.as_bytes().to_vec().into(),
         ..Default::default()
     };
-    let setting = tee_agent.cose_get_setting(&path).await;
+    let setting = tee_agent.setting_get(&path).await;
     match setting {
         Ok(setting) => {
             log::info!(target: LOG_TARGET,

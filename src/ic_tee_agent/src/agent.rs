@@ -1,21 +1,14 @@
-use candid::Principal;
+use candid::{
+    utils::{encode_args, ArgumentEncoder},
+    CandidType, Decode, Principal,
+};
 use ciborium::into_writer;
 use ed25519_consensus::SigningKey;
 use ic_agent::Agent;
-use ic_cose::{
-    agent::{query_call, update_call},
-    client::Client,
-};
-use ic_cose_types::{
-    cose::format_error,
-    types::{
-        setting::{CreateSettingInput, CreateSettingOutput, SettingInfo},
-        SettingPath, SignDelegationInput,
-    },
-};
+use ic_cose::client::CoseSDK;
+use ic_cose_types::{format_error, types::SignDelegationInput, BoxError, CanisterCaller};
 use ic_tee_cdk::{Delegation, SignInResponse, SignedDelegation};
 use serde_bytes::ByteBuf;
-use std::sync::Arc;
 
 use crate::{BasicIdentity, TEEIdentity};
 
@@ -25,7 +18,6 @@ pub struct TEEAgent {
     pub cose_canister: Principal,
     pub identity: TEEIdentity,
     pub agent: Agent,
-    pub cose: Client,
 }
 
 impl TEEAgent {
@@ -44,26 +36,22 @@ impl TEEAgent {
         if host.starts_with("http://") {
             agent.fetch_root_key().await.map_err(format_error)?;
         }
-        let cose = Client::new(Arc::new(agent.clone()), configuration_canister);
         Ok(Self {
             auth_canister: authentication_canister,
             cose_canister: configuration_canister,
             identity,
             agent,
-            cose,
         })
     }
 
     fn with_new_identity(&self, identity: TEEIdentity) -> Self {
         let mut agent = self.agent.clone();
         agent.set_identity(identity.clone());
-        let cose = Client::new(Arc::new(agent.clone()), self.cose_canister);
         Self {
             auth_canister: self.auth_canister,
             cose_canister: self.cose_canister,
             identity,
             agent,
-            cose,
         }
     }
 
@@ -90,27 +78,25 @@ impl TEEAgent {
 
         let mut id = self.identity.clone();
         let (user_key, delegation) = {
-            let res: Result<SignInResponse, String> = update_call(
-                &self.agent,
-                &self.auth_canister,
-                "sign_in",
-                (kind, attestation),
-            )
-            .await?;
+            let res: Result<SignInResponse, String> = self
+                .canister_update(&self.auth_canister, "sign_in", (kind, attestation))
+                .await
+                .map_err(format_error)?;
             let res = res?;
             let user_key = res.user_key.to_vec();
 
-            let res: Result<SignedDelegation, String> = query_call(
-                &self.agent,
-                &self.auth_canister,
-                "get_delegation",
-                (
-                    res.seed,
-                    ByteBuf::from(session_key.1.clone()),
-                    res.expiration,
-                ),
-            )
-            .await?;
+            let res: Result<SignedDelegation, String> = self
+                .canister_query(
+                    &self.auth_canister,
+                    "get_delegation",
+                    (
+                        res.seed,
+                        ByteBuf::from(session_key.1.clone()),
+                        res.expiration,
+                    ),
+                )
+                .await
+                .map_err(format_error)?;
             (user_key, res?)
         };
 
@@ -133,7 +119,6 @@ impl TEEAgent {
         let pubkey = ByteBuf::from(session_key.1.clone());
 
         let res = self
-            .cose
             .namespace_sign_delegation(&SignDelegationInput {
                 ns,
                 name,
@@ -144,7 +129,6 @@ impl TEEAgent {
 
         let user_key = res.user_key.to_vec();
         let res = self
-            .cose
             .get_delegation(&res.seed, &pubkey, res.expiration)
             .await?;
         id.update_with_delegation(
@@ -161,23 +145,6 @@ impl TEEAgent {
         );
 
         Ok(self.with_new_identity(id))
-    }
-
-    pub async fn cose_get_secret(&self, path: &SettingPath) -> Result<[u8; 32], String> {
-        let key = self.cose.get_cose_encrypted_key(path).await?;
-        Ok(*key)
-    }
-
-    pub async fn cose_get_setting(&self, path: &SettingPath) -> Result<SettingInfo, String> {
-        self.cose.setting_get(path).await
-    }
-
-    pub async fn cose_create_setting(
-        &self,
-        path: &SettingPath,
-        input: &CreateSettingInput,
-    ) -> Result<CreateSettingOutput, String> {
-        self.cose.setting_create(path, input).await
     }
 
     pub async fn update_call_raw(
@@ -210,5 +177,53 @@ impl TEEAgent {
             .await
             .map_err(format_error)?;
         Ok(res.into())
+    }
+}
+
+impl CoseSDK for TEEAgent {
+    fn canister(&self) -> &Principal {
+        &self.cose_canister
+    }
+}
+
+impl CanisterCaller for TEEAgent {
+    async fn canister_query<
+        In: ArgumentEncoder + Send,
+        Out: CandidType + for<'a> candid::Deserialize<'a>,
+    >(
+        &self,
+        canister: &Principal,
+        method: &str,
+        args: In,
+    ) -> Result<Out, BoxError> {
+        let input = encode_args(args)?;
+        let res = self
+            .agent
+            .query(canister, method)
+            .with_arg(input)
+            .call()
+            .await?;
+        let output = Decode!(res.as_slice(), Out)?;
+        Ok(output)
+    }
+
+    async fn canister_update<
+        In: ArgumentEncoder + Send,
+        Out: CandidType + for<'a> candid::Deserialize<'a>,
+    >(
+        &self,
+        canister: &Principal,
+        method: &str,
+        args: In,
+    ) -> Result<Out, BoxError> {
+        let input = encode_args(args)?;
+        let res = self
+            .agent
+            .update(canister, method)
+            .with_arg(input)
+            .call_and_wait()
+            .await?;
+        let output = Decode!(res.as_slice(), Out)?;
+        Ok(output)
     }
 }

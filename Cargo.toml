@@ -18,7 +18,7 @@ strip = true
 opt-level = 's'
 
 [workspace.package]
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 repository = "https://github.com/ldclabs/ic-tee"
 keywords = ["tee", "canister", "icp", "nitro"]
@@ -26,6 +26,7 @@ categories = ["web-programming"]
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+async-trait = "0.1"
 anyhow = "1"
 axum = { version = "0.8", features = [
   "http1",

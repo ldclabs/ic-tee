@@ -7,7 +7,11 @@ use ic_agent::{
     identity::{AnonymousIdentity, BasicIdentity},
     Identity,
 };
-use ic_cose::{agent::build_agent, client::Client, rand_bytes};
+use ic_cose::{
+    agent::build_agent,
+    client::{Client, CoseSDK},
+    rand_bytes,
+};
 use ic_cose_types::{
     cose::{cose_aes256_key, encrypt0::cose_encrypt0, CborSerializable},
     to_cbor_bytes,

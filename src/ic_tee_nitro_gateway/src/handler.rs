@@ -41,7 +41,7 @@ pub struct AppState {
     root_secret: [u8; 48],
     upstream_port: Option<u16>,
     cose_namespace: String,
-    app_basic_auth: Option<String>,
+    app_basic_token: Option<String>,
 }
 
 impl AppState {
@@ -51,7 +51,7 @@ impl AppState {
         root_secret: [u8; 48],
         upstream_port: Option<u16>,
         cose_namespace: String,
-        app_basic_auth: Option<String>,
+        app_basic_token: Option<String>,
     ) -> Self {
         let http_client = Arc::new(
             hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
@@ -65,15 +65,15 @@ impl AppState {
             root_secret,
             upstream_port,
             cose_namespace,
-            app_basic_auth,
+            app_basic_token,
         }
     }
 
     pub fn valid_session(&self, headers: &HeaderMap) -> bool {
-        if let Some(app_basic_auth) = &self.app_basic_auth {
+        if let Some(app_basic_token) = &self.app_basic_token {
             if let Some(token) = headers.get(header::AUTHORIZATION) {
                 if let Ok(token) = token.to_str() {
-                    return token.trim_start_matches("Basic ") == app_basic_auth;
+                    return token.trim_start_matches("Basic ") == app_basic_token;
                 }
             }
             return false;
@@ -170,22 +170,18 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
         Content::CBOR(_, _) => Content::CBOR(info, None).into_response(),
         _ => Content::JSON(
             TEEAppInformationJSON {
-                id: app.info.id.to_string(),
-                instance: app.info.instance.clone(),
-                name: app.info.name.clone(),
-                version: app.info.version.clone(),
-                kind: app.info.kind.clone(),
-                pcr0: const_hex::encode(&app.info.pcr0),
-                pcr1: const_hex::encode(&app.info.pcr1),
-                pcr2: const_hex::encode(&app.info.pcr2),
-                start_time_ms: app.info.start_time_ms,
-                identity_canister: app.info.identity_canister.to_string(),
-                cose_canister: app.info.cose_canister.to_string(),
-                registration_canister: app
-                    .info
-                    .registration_canister
-                    .as_ref()
-                    .map(|p| p.to_string()),
+                id: info.id.to_string(),
+                instance: info.instance,
+                name: info.name,
+                version: info.version,
+                kind: info.kind,
+                pcr0: const_hex::encode(&info.pcr0),
+                pcr1: const_hex::encode(&info.pcr1),
+                pcr2: const_hex::encode(&info.pcr2),
+                start_time_ms: info.start_time_ms,
+                identity_canister: info.identity_canister.to_string(),
+                cose_canister: info.cose_canister.to_string(),
+                registration_canister: info.registration_canister.as_ref().map(|p| p.to_string()),
                 caller: info.caller.to_string(),
             },
             None,
@@ -477,6 +473,7 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
                 .collect();
             Ok(to_cbor_bytes(&headers).into())
         }
+        // "sign_delegation" => {}
         _ => Err(format!("unsupported method {}", req.method)),
     }
 }
