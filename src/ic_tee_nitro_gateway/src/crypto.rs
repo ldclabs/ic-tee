@@ -6,8 +6,8 @@ use ic_cose_types::{
         encrypt0::{cose_decrypt0, cose_encrypt0},
         mac3_256,
     },
-    format_error,
     types::{ECDHInput, ECDHOutput},
+    BoxError,
 };
 use serde_bytes::{ByteArray, ByteBuf};
 
@@ -64,9 +64,9 @@ pub fn a256gcm_ecdh_key(
 /// the payload with AES-GCM-256.
 ///
 /// Returns the decrypted payload or an error if decryption fails.
-pub fn decrypt_ecdh(secret_key: [u8; 32], ecdh: &ECDHOutput<ByteBuf>) -> Result<ByteBuf, String> {
+pub fn decrypt_ecdh(secret_key: [u8; 32], ecdh: &ECDHOutput<ByteBuf>) -> Result<ByteBuf, BoxError> {
     let (shared_secret, _) = ecdh_x25519(secret_key, *ecdh.public_key);
-    let key = cose_decrypt0(&ecdh.payload, shared_secret.as_bytes(), &[]).map_err(format_error)?;
+    let key = cose_decrypt0(&ecdh.payload, shared_secret.as_bytes(), &[])?;
     Ok(key.into())
 }
 
@@ -242,7 +242,7 @@ pub fn derive_secp256k1_public_key(
     public_key: &[u8; 33],
     chain_code: &[u8; 32],
     derivation_path: Vec<Vec<u8>>,
-) -> Result<(ByteArray<33>, ByteArray<32>), String> {
+) -> Result<(ByteArray<33>, ByteArray<32>), BoxError> {
     let path = ic_crypto_secp256k1::DerivationPath::new(
         derivation_path
             .into_iter()
@@ -250,7 +250,7 @@ pub fn derive_secp256k1_public_key(
             .collect(),
     );
 
-    let pk = ic_crypto_secp256k1::PublicKey::deserialize_sec1(public_key).map_err(format_error)?;
+    let pk = ic_crypto_secp256k1::PublicKey::deserialize_sec1(public_key)?;
     let (pk, chain_code) = pk.derive_subkey_with_chain_code(&path, chain_code);
     let pk = pk.serialize_sec1(true);
     let pk: [u8; 33] = pk

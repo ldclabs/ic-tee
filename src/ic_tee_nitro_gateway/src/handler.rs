@@ -4,6 +4,7 @@ use axum::{
     http::{header, uri::Uri, HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use candid::decode_args;
 use ciborium::from_reader;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use ic_cose_types::{
@@ -257,7 +258,8 @@ pub async fn local_sign_attestation(
             )
             .into_response(),
             Err(err) => {
-                Content::Text::<()>(err, Some(StatusCode::INTERNAL_SERVER_ERROR)).into_response()
+                Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
+                    .into_response()
             }
         },
         Content::JSON(req, _) => match sign_attestation(AttestationRequest {
@@ -273,7 +275,8 @@ pub async fn local_sign_attestation(
             )
             .into_response(),
             Err(err) => {
-                Content::Text::<()>(err, Some(StatusCode::INTERNAL_SERVER_ERROR)).into_response()
+                Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
+                    .into_response()
             }
         },
         _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
@@ -541,14 +544,14 @@ fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInforma
 
         let path = match req.method.as_str() {
             "ecdh_cose_encrypted_key" => {
-                let res: Result<(SettingPath, ECDHInput), _> = from_reader(req.params.as_slice());
+                let res: Result<(SettingPath, ECDHInput), _> = decode_args(req.params.as_slice());
                 match res {
                     Ok((path, _)) => path,
                     _ => return true,
                 }
             }
             "vetkd_public_key" => {
-                let res: Result<(SettingPath,), _> = from_reader(req.params.as_slice());
+                let res: Result<(SettingPath,), _> = decode_args(req.params.as_slice());
                 match res {
                     Ok((path,)) => path,
                     _ => return true,
@@ -556,7 +559,7 @@ fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInforma
             }
             "vetkd_encrypted_key" => {
                 let res: Result<(SettingPath, ByteArray<48>), _> =
-                    from_reader(req.params.as_slice());
+                    decode_args(req.params.as_slice());
                 match res {
                     Ok((path, _)) => path,
                     _ => return true,
@@ -565,7 +568,7 @@ fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInforma
             _ => return true,
         };
 
-        return path.ns == ns;
+        return path.ns == ns && path.subject == Some(info.id) && path.user_owned;
     }
 
     false

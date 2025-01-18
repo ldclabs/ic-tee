@@ -1,4 +1,3 @@
-use anyhow::Result;
 use axum::{routing, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use candid::Principal;
@@ -6,7 +5,10 @@ use clap::Parser;
 use ed25519_consensus::SigningKey;
 use ic_agent::identity::BasicIdentity;
 use ic_cose::{client::CoseSDK, rand_bytes};
-use ic_cose_types::types::{setting::CreateSettingInput, SettingPath};
+use ic_cose_types::{
+    types::{setting::CreateSettingInput, SettingPath},
+    BoxError,
+};
 use ic_tee_agent::{
     agent::TEEAgent,
     identity::TEEIdentity,
@@ -98,7 +100,7 @@ struct Cli {
 // fixed identity for local development @53cyg-yyaaa-aaaap-ahpua-cai:_:jarvis
 // "m6a24-ioo3h-wtn6z-rntjm-rkzgw-24nrf-2x6jb-znzpt-7uctp-akavf-yqe"
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), BoxError> {
     let cli = Cli::parse();
 
     let writer = if let Some(bootstrap_logtail) = &cli.bootstrap_logtail {
@@ -125,7 +127,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn bootstrap(cli: Cli) -> Result<()> {
+async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let start = Instant::now();
     let is_dev = cli.ic_host.starts_with("http://");
 
@@ -134,13 +136,9 @@ async fn bootstrap(cli: Cli) -> Result<()> {
         .install_default()
         .expect("failed to install rustls crypto provider");
 
-    let identity_canister = Principal::from_text(cli.identity_canister)
-        .map_err(|err| anyhow::anyhow!("invalid identity_canister id: {}", err))?;
-    let cose_canister = Principal::from_text(cli.cose_canister)
-        .map_err(|err| anyhow::anyhow!("invalid cose_canister id: {}", err))?;
-    let mut tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister)
-        .await
-        .map_err(anyhow::Error::msg)?;
+    let identity_canister = Principal::from_text(cli.identity_canister)?;
+    let cose_canister = Principal::from_text(cli.cose_canister)?;
+    let mut tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister).await?;
 
     let namespace = cli.cose_namespace;
     let session_expires_in_ms = cli.session_expires_in_ms.unwrap_or(SESSION_EXPIRES_IN_MS);
@@ -179,10 +177,9 @@ async fn bootstrap(cli: Cli) -> Result<()> {
             public_key: Some(public_key.into()),
             user_data: Some(user_sign_in_req.clone().into()),
             nonce: Some(sig.to_bytes().to_vec().into()), // use signature as nonce for challenge
-        })
-        .map_err(anyhow::Error::msg)?;
+        })?;
 
-        let attestation = parse_and_verify(doc.as_slice()).map_err(anyhow::Error::msg)?;
+        let attestation = parse_and_verify(doc.as_slice())?;
         log::info!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
             "parse_and_verify attestation for sign in, module_id: {:?}", attestation.module_id);
@@ -191,8 +188,7 @@ async fn bootstrap(cli: Cli) -> Result<()> {
             .sign_in_with_attestation(session_key.clone(), || {
                 Ok((TEE_KIND.to_string(), doc.into()))
             })
-            .await
-            .map_err(anyhow::Error::msg)?;
+            .await?;
         attestation
     };
 
@@ -205,8 +201,7 @@ async fn bootstrap(cli: Cli) -> Result<()> {
         log::info!(target: LOG_TARGET, "start to cose_upgrade_identity");
         tee_agent = tee_agent
             .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
-            .await
-            .map_err(anyhow::Error::msg)?;
+            .await?;
 
         log::info!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
@@ -222,12 +217,12 @@ async fn bootstrap(cli: Cli) -> Result<()> {
     let master_secret = tee_agent
         .get_cose_encrypted_key(&SettingPath {
             ns: namespace.clone(),
+            user_owned: true,
             key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
             subject: Some(principal),
             ..Default::default()
         })
-        .await
-        .map_err(anyhow::Error::msg)?;
+        .await?;
     log::info!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
             "get master_secret");
@@ -285,9 +280,7 @@ async fn bootstrap(cli: Cli) -> Result<()> {
             } else {
                 log::info!(target: LOG_TARGET, "start to get_tls");
                 let tls = get_tls(&tee_agent, &start, namespace.clone(), &master_secret).await?;
-                let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
-                    .await
-                    .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
+                let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec()).await?;
                 Some(config)
             };
 
@@ -330,32 +323,32 @@ async fn bootstrap(cli: Cli) -> Result<()> {
                     // remember to `dfx canister call ic_cose_canister namespace_add_delegator`
                     tee_agent = tee_agent
                         .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
-                        .await
-                        .map_err(anyhow::Error::msg)?;
+                        .await?;
                 }
                 None => {
                     tee_agent = tee_agent
                         .sign_in_with_attestation(session_key, || {
-                            let doc = sign_attestation(AttestationRequest {
+                            match sign_attestation(AttestationRequest {
                                 public_key: Some(public_key.into()),
                                 user_data: Some(user_sign_in_req.clone().into()),
                                 nonce: None,
-                            })?;
-                            Ok((TEE_KIND.to_string(), doc.into()))
+                            }) {
+                                Ok(doc) => Ok((TEE_KIND.to_string(), doc.into())),
+                                Err(err) => Err(err.to_string()),
+                            }
                         })
-                        .await
-                        .map_err(anyhow::Error::msg)?;
+                        .await?;
                 }
             }
         }
-        Result::<()>::Ok(())
+        Result::<(), BoxError>::Ok(())
     };
 
     match tokio::try_join!(task, shutdown_future) {
         Ok(_) => Ok(()),
         Err(err) => {
             log::error!(target: LOG_TARGET, "server error: {:?}", err);
-            Err(err)
+            Err(err.into())
         }
     }
 }
@@ -364,7 +357,7 @@ async fn start_local_server(
     app_state: handler::AppState,
     start: Instant,
     cancel_token: CancellationToken,
-) -> anyhow::Result<()> {
+) -> Result<(), BoxError> {
     let app = Router::new()
         .route("/information", routing::get(handler::get_information))
         .route(
@@ -383,7 +376,7 @@ async fn start_local_server(
         .route("/identity", routing::post(handler::local_call_identity))
         .with_state(app_state);
 
-    let addr: SocketAddr = LOCAL_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
+    let addr: SocketAddr = LOCAL_HTTP_ADDR.parse()?;
 
     let listener = create_reuse_port_listener(addr).await?;
 
@@ -396,8 +389,8 @@ async fn start_local_server(
             let _ = cancel_token.cancelled().await;
             tokio::time::sleep(LOCAL_SERVER_SHUTDOWN_DURATION).await;
         })
-        .await
-        .map_err(anyhow::Error::new)
+        .await?;
+    Ok(())
 }
 
 async fn start_public_server(
@@ -405,7 +398,7 @@ async fn start_public_server(
     start: Instant,
     cancel_token: CancellationToken,
     tls_config: Option<RustlsConfig>,
-) -> anyhow::Result<()> {
+) -> Result<(), BoxError> {
     let app = Router::new()
         .route(
             "/.well-known/information",
@@ -417,7 +410,7 @@ async fn start_public_server(
         )
         .route("/{*any}", routing::any(handler::proxy))
         .with_state(app_state);
-    let addr: SocketAddr = PUBLIC_HTTP_ADDR.parse().map_err(anyhow::Error::new)?;
+    let addr: SocketAddr = PUBLIC_HTTP_ADDR.parse()?;
     if let Some(tls_config) = tls_config {
         log::warn!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
@@ -430,13 +423,13 @@ async fn start_public_server(
                 axum_server::from_tcp_rustls(listener.into_std()?, tls_config)
                     .handle(handle.clone())
                     .serve(app.into_make_service())
-                    .await
-                    .map_err(anyhow::Error::new)
+                    .await?;
+                Result::<(), BoxError>::Ok(())
             },
             async {
                 let _ = cancel_token.cancelled().await;
                 handle.graceful_shutdown(Some(PUBLIC_SERVER_GRACEFUL_DURATION));
-                Result::<()>::Ok(())
+                Result::<(), BoxError>::Ok(())
             }
         );
         res.0?;
@@ -454,12 +447,12 @@ async fn start_public_server(
                 let _ = cancel_token.cancelled().await;
                 tokio::time::sleep(PUBLIC_SERVER_GRACEFUL_DURATION).await;
             })
-            .await
-            .map_err(anyhow::Error::new)
+            .await?;
+        Ok(())
     }
 }
 
-async fn shutdown_signal(cancel_token: CancellationToken) -> anyhow::Result<()> {
+async fn shutdown_signal(cancel_token: CancellationToken) -> Result<(), BoxError> {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -494,14 +487,13 @@ async fn get_or_set_root_secret(
     start: &Instant,
     ns: String,
     master_secret: &[u8; 32],
-) -> Result<[u8; 48]> {
+) -> Result<[u8; 48], BoxError> {
     let path = SettingPath {
         ns,
         user_owned: true,
         key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
         ..Default::default()
     };
-
     let setting = tee_agent.setting_get(&path).await;
     let setting = match setting {
         Ok(setting) => setting,
@@ -509,8 +501,7 @@ async fn get_or_set_root_secret(
             log::error!(target: LOG_TARGET, "get root_secret failed: {:?}", err);
             // generate a new root_secret in TEE
             let root_secret: [u8; 48] = rand_bytes();
-            let payload = encrypt_payload(&root_secret, master_secret, MY_COSE_AAD.as_bytes())
-                .map_err(anyhow::Error::msg)?;
+            let payload = encrypt_payload(&root_secret, master_secret, MY_COSE_AAD.as_bytes())?;
             // ignore error because it may already exist
             let res = tee_agent
                 .setting_create(
@@ -528,10 +519,7 @@ async fn get_or_set_root_secret(
             }
 
             // fetch again
-            tee_agent
-                .setting_get(&path)
-                .await
-                .map_err(anyhow::Error::msg)?
+            tee_agent.setting_get(&path).await?
         }
     };
 
@@ -539,10 +527,9 @@ async fn get_or_set_root_secret(
         elapsed = start.elapsed().as_millis() as u64;
         "get root_secret");
 
-    let root_secret = decrypt_payload(&setting, master_secret, MY_COSE_AAD.as_bytes())
-        .map_err(anyhow::Error::msg)?;
+    let root_secret = decrypt_payload(&setting, master_secret, MY_COSE_AAD.as_bytes())?;
     root_secret.try_into().map_err(|val: Vec<u8>| {
-        anyhow::anyhow!("invalid root secret, expected 48 bytes, got {}", val.len())
+        format!("invalid root secret, expected 48 bytes, got {}", val.len()).into()
     })
 }
 
@@ -551,7 +538,7 @@ async fn get_tls(
     start: &Instant,
     ns: String,
     master_secret: &[u8; 32],
-) -> Result<TLSPayload> {
+) -> Result<TLSPayload, BoxError> {
     let path = SettingPath {
         ns,
         key: SETTING_KEY_TLS.as_bytes().to_vec().into(),
@@ -564,16 +551,17 @@ async fn get_tls(
             elapsed = start.elapsed().as_millis() as u64;
             "get TLS");
 
-            decrypt_tls(&setting, master_secret).map_err(anyhow::Error::msg)
+            let tls = decrypt_tls(&setting, master_secret)?;
+            Ok(tls)
         }
         Err(err) => {
             log::error!(target: LOG_TARGET, "get TLS failed: {:?}", err);
-            Err(anyhow::anyhow!("get TLS failed: {:?}", err))
+            Err(format!("get TLS failed: {:?}", err).into())
         }
     }
 }
 
-async fn create_reuse_port_listener(addr: SocketAddr) -> anyhow::Result<tokio::net::TcpListener> {
+async fn create_reuse_port_listener(addr: SocketAddr) -> Result<tokio::net::TcpListener, BoxError> {
     let socket = match &addr {
         SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
         SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
