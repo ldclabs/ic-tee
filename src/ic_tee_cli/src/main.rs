@@ -36,7 +36,6 @@ use std::{path::Path, sync::Arc};
 
 static LOCAL_HOST: &str = "http://127.0.0.1:4943";
 static IC_HOST: &str = "https://icp-api.io";
-static SETTING_KEY_ID: &str = "id_ed25519";
 static SETTING_KEY_TLS: &str = "tls";
 static COSE_SECRET_PERMANENT_KEY: &str = "v1";
 
@@ -68,7 +67,7 @@ pub enum Commands {
     /// derive the principal with canister and seeds
     IdentityDerive {
         /// TEE kind to derive the principal
-        #[arg(long, default_value = "Nitro")]
+        #[arg(long, default_value = "NITRO")]
         kind: String,
 
         #[arg(long)]

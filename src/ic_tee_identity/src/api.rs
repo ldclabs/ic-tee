@@ -30,7 +30,7 @@ fn whoami() -> Principal {
 fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String> {
     let attestation = match kind.as_str() {
         "NITRO" => parse_and_verify(attestation.as_slice())?,
-        _ => Err("unsupported attestation kind".to_string())?,
+        _ => Err(format!("unsupported attestation kind: {}", kind))?,
     };
 
     let now_ms = ic_cdk::api::time() / MILLISECONDS;

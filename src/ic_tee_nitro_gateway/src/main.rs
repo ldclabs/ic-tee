@@ -216,12 +216,21 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     };
 
     let principal = tee_agent.get_principal();
-    log::info!(target: LOG_TARGET, "start to get master_secret");
+    log::info!(target: LOG_TARGET, "start to get my_master_secret");
     // should replace with vetkey in the future
-    let master_secret = tee_agent
+    let admin_master_secret = tee_agent
         .get_cose_encrypted_key(&SettingPath {
             ns: namespace.clone(),
-            user_owned: true,
+            user_owned: false,
+            key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
+            subject: Some(principal),
+            ..Default::default()
+        })
+        .await?;
+    let my_master_secret = tee_agent
+        .get_cose_encrypted_key(&SettingPath {
+            ns: namespace.clone(),
+            user_owned: true, // admin can't read user owned master_secret
             key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
             subject: Some(principal),
             ..Default::default()
@@ -229,11 +238,11 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         .await?;
     log::info!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
-            "get master_secret");
+            "get my_master_secret");
 
     log::info!(target: LOG_TARGET, "start to get_or_set_root_secret");
     let root_secret =
-        get_or_set_root_secret(&tee_agent, &start, namespace.clone(), &master_secret).await?;
+        get_or_set_root_secret(&tee_agent, &start, namespace.clone(), &my_master_secret).await?;
 
     let info = TEEAppInformation {
         id: principal,
@@ -283,7 +292,8 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
                 None
             } else {
                 log::info!(target: LOG_TARGET, "start to get_tls");
-                let tls = get_tls(&tee_agent, &start, namespace.clone(), &master_secret).await?;
+                let tls =
+                    get_tls(&tee_agent, &start, namespace.clone(), &admin_master_secret).await?;
                 let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec()).await?;
                 Some(config)
             };
