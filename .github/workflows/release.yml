@@ -33,10 +33,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y musl-tools
         rustup target add x86_64-unknown-linux-musl
-        cargo build --release --locked -p ic_tee_nitro_gateway --target x86_64-unknown-linux-musl
-        cp "target/x86_64-unknown-linux-musl/release/ic_tee_nitro_gateway" out/
-        SHA256="$(sha256sum < "out/ic_tee_nitro_gateway" | sed 's/ .*$//g')"
-        echo $SHA256 > "out/ic_tee_nitro_gateway.$SHA256.txt"
+        for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_cli
+        do
+          cargo build --release --locked -p $PACK --target x86_64-unknown-linux-musl
+          cp "target/x86_64-unknown-linux-musl/release/$PACK" "out/"
+          SHA256="$(sha256sum < "out/$PACK" | sed 's/ .*$//g')"
+          echo $SHA256 > "out/$PACK.$SHA256.txt"
+        done
         ls -lah out
     - name: Release
       uses: softprops/action-gh-release@v2
