@@ -2482,7 +2482,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_agent"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "axum-core",
  "base64 0.22.1",
@@ -2510,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cdk"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "candid",
  "ciborium",
@@ -2523,7 +2523,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cli"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "candid",
@@ -2546,7 +2546,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_host_daemon"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -2559,7 +2559,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_identity"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "candid",
  "ciborium",
@@ -2577,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_logtail"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -2588,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_attestation"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "candid",
  "ciborium",
@@ -2604,7 +2604,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_gateway"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "aws-nitro-enclaves-nsm-api",
  "axum",

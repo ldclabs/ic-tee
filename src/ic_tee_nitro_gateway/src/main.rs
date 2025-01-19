@@ -303,7 +303,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
                     info.clone(),
                     Arc::new(tee_agent.clone()),
                     [0u8; 48],
-                    None,
+                    cli.upstream_port,
                     String::new(),
                     None,
                 ),
