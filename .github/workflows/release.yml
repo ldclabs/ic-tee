@@ -30,13 +30,11 @@ jobs:
         ls -lah out
     - name: Build linux binary
       run: |
-        rustup target add x86_64-unknown-linux-gnu
-        # Build proc-macro crates first without static linking
-        cargo build --release --locked -p asn1-rs-derive
-        # Then build the main binary with static linking
-        RUSTFLAGS="-C target-feature=+crt-static -C link-args=-nostartfiles" \
-        cargo build --release --locked -p ic_tee_nitro_gateway
-        cp "target/release/ic_tee_nitro_gateway" out/
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
+        rustup target add x86_64-unknown-linux-musl
+        cargo build --release --locked -p ic_tee_nitro_gateway --target x86_64-unknown-linux-musl
+        cp "target/x86_64-unknown-linux-musl/release/ic_tee_nitro_gateway" out/
         SHA256="$(sha256sum < "out/ic_tee_nitro_gateway" | sed 's/ .*$//g')"
         echo $SHA256 > "out/ic_tee_nitro_gateway.$SHA256.txt"
         ls -lah out
