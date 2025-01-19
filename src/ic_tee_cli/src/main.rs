@@ -15,9 +15,12 @@ use ic_cose::{
 use ic_cose_types::{
     cose::{cose_aes256_key, encrypt0::cose_encrypt0, CborSerializable},
     to_cbor_bytes,
-    types::{setting::CreateSettingInput, SettingPath},
+    types::{
+        setting::{CreateSettingInput, UpdateSettingPayloadInput},
+        SettingPath,
+    },
 };
-use ic_tee_agent::setting::TLSPayload;
+use ic_tee_agent::setting::{decrypt_dek, decrypt_payload, TLSPayload};
 use ic_tee_cdk::canister_user_key;
 use ic_tee_nitro_attestation::{parse, parse_and_verify};
 use pkcs8::{
@@ -108,13 +111,23 @@ pub enum Commands {
         version: u32,
     },
     /// save a identity to the COSE canister
-    SettingSaveIdentity {
+    SettingUpsertFile {
         /// The setting's namespace
         #[arg(long)]
         ns: String,
-        /// the identity path
+        /// setting's subject
         #[arg(long)]
-        path: String,
+        subject: String,
+        /// setting's key
+        #[arg(long)]
+        key: String,
+        /// file to save
+        #[arg(long)]
+        file: String,
+        #[arg(long)]
+        desc: Option<String>,
+        #[arg(long, default_value = "0")]
+        version: u32,
     },
 
     /// save a tls certificate to the COSE canister
@@ -236,52 +249,113 @@ async fn main() -> Result<()> {
             };
 
             let res = cose.setting_get(&path).await.map_err(anyhow::Error::msg)?;
-            pretty_println(&res)?;
+            if res.dek.is_some() {
+                let secret = cose
+                    .get_cose_encrypted_key(&SettingPath {
+                        ns: ns.clone(),
+                        user_owned: false,
+                        subject: path.subject.clone(),
+                        key: ByteBuf::from(COSE_SECRET_PERMANENT_KEY.as_bytes()),
+                        version: 0,
+                    })
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+
+                let payload = decrypt_payload(&res, &secret, &[]).map_err(anyhow::Error::msg)?;
+                pretty_println(&res)?;
+                if let Ok(doc) = String::from_utf8(payload.clone()) {
+                    println!("-----------:payload:-----------\n{}", doc);
+                } else {
+                    println!(
+                        "-----------:payload:-----------\n{}",
+                        const_hex::encode(&payload)
+                    );
+                }
+            } else {
+                pretty_println(&res)?;
+            }
         }
 
-        Some(Commands::SettingSaveIdentity { ns, path }) => {
+        Some(Commands::SettingUpsertFile {
+            ns,
+            subject,
+            key,
+            file,
+            desc,
+            version,
+        }) => {
             let canister = Principal::from_text(&cli.canister)
                 .map_err(|err| anyhow::anyhow!("invalid COSE canister: {:?}", err))?;
-            let content = std::fs::read_to_string(path)?;
-            let id = BasicIdentity::from_pem(content.as_bytes())?;
-            let principal = id.sender().map_err(anyhow::Error::msg)?;
-            let keypair = KeypairBytes::from_pkcs8_pem(&content)?;
+            let subject = Principal::from_text(subject)
+                .map_err(|err| anyhow::anyhow!("invalid subject: {:?}", err))?;
+            let content = std::fs::read(file)?;
             let agent = Arc::new(
                 build_agent(host, identity)
                     .await
                     .map_err(anyhow::Error::msg)?,
             );
             let cose = Client::new(agent.clone(), canister);
+            let secret = cose
+                .get_cose_encrypted_key(&SettingPath {
+                    ns: ns.clone(),
+                    user_owned: false,
+                    subject: Some(subject),
+                    key: ByteBuf::from(COSE_SECRET_PERMANENT_KEY.as_bytes()),
+                    version: 0,
+                })
+                .await
+                .map_err(anyhow::Error::msg)?;
             let path = SettingPath {
                 ns: ns.clone(),
                 user_owned: false,
-                subject: Some(principal),
-                key: ByteBuf::from(SETTING_KEY_ID.as_bytes()),
-                version: 0,
+                subject: Some(subject),
+                key: ByteBuf::from(key.as_bytes()),
+                version: *version,
             };
-            let secret = cose
-                .get_cose_encrypted_key(&path)
-                .await
-                .map_err(anyhow::Error::msg)?;
-            let key = cose_aes256_key(keypair.secret_key, principal.as_slice().to_vec());
-            let key = key.to_vec().unwrap();
-            let nonce: [u8; 12] = rand_bytes();
-            let payload =
-                cose_encrypt0(&key, &secret, &[], &nonce, None).map_err(anyhow::Error::msg)?;
-            let res = cose
-                .setting_create(
-                    &path,
-                    &CreateSettingInput {
-                        dek: Some(payload.into()),
-                        payload: None,
-                        desc: None,
-                        status: None,
-                        tags: None,
-                    },
-                )
-                .await
-                .map_err(anyhow::Error::msg)?;
-            pretty_println(&res)?;
+
+            // create setting with version 0
+            if path.version == 0 {
+                let dek: [u8; 32] = rand_bytes();
+                let nonce: [u8; 12] = rand_bytes();
+                let payload =
+                    cose_encrypt0(&content, &dek, &[], &nonce, None).map_err(anyhow::Error::msg)?;
+                let dek = cose_aes256_key(dek, COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec());
+                let dek = dek.to_vec().unwrap();
+                let nonce: [u8; 12] = rand_bytes();
+                let dek =
+                    cose_encrypt0(&dek, &secret, &[], &nonce, None).map_err(anyhow::Error::msg)?;
+                let res = cose
+                    .setting_create(
+                        &path,
+                        &CreateSettingInput {
+                            dek: Some(dek.into()),
+                            payload: Some(payload.into()),
+                            desc: desc.clone(),
+                            status: None,
+                            tags: None,
+                        },
+                    )
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                pretty_println(&res)?;
+            } else {
+                let res = cose.setting_get(&path).await.map_err(anyhow::Error::msg)?;
+                let secret = decrypt_dek(&res, &secret, &[]).map_err(anyhow::Error::msg)?;
+                let nonce: [u8; 12] = rand_bytes();
+                let payload = cose_encrypt0(&content, &secret, &[], &nonce, None)
+                    .map_err(anyhow::Error::msg)?;
+                let res = cose
+                    .setting_update_payload(
+                        &path,
+                        &UpdateSettingPayloadInput {
+                            payload: Some(payload.into()),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                pretty_println(&res)?;
+            }
         }
 
         Some(Commands::SettingSaveTLS {

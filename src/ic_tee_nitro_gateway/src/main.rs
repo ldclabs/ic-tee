@@ -112,8 +112,7 @@ async fn main() -> Result<(), BoxError> {
     };
 
     Builder::with_level(&get_env_level().to_string())
-        .with_target_writer(LOG_TARGET, writer)
-        .with_target_writer("*", new_writer(tokio::io::stdout()))
+        .with_target_writer("*", writer)
         .init();
 
     log::info!(target: LOG_TARGET, "bootstrap {}@{} in TEE", APP_NAME, APP_VERSION);

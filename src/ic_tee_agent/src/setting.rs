@@ -43,6 +43,25 @@ pub fn decrypt_payload(
     }
 }
 
+pub fn decrypt_dek(info: &SettingInfo, secret: &[u8; 32], aad: &[u8]) -> Result<[u8; 32], String> {
+    if let Some(dek) = &info.dek {
+        let key = cose_decrypt0(dek.as_slice(), secret, aad)?;
+        let key =
+            CoseKey::from_slice(&key).map_err(|err| format!("invalid COSE key: {:?}", err))?;
+        let secret2 = get_cose_key_secret(key)?;
+        // get dek
+        let secret: [u8; 32] = secret2.try_into().map_err(|val: Vec<u8>| {
+            format!(
+                "invalid COSE secret from DEK, expected 32 bytes, got {}",
+                val.len()
+            )
+        })?;
+        Ok(secret)
+    } else {
+        Err("no DEK".to_string())
+    }
+}
+
 pub fn encrypt_payload(payload: &[u8], secret: &[u8; 32], aad: &[u8]) -> Result<Vec<u8>, String> {
     let nonce: [u8; 12] = rand_bytes();
     cose_encrypt0(payload, secret, aad, &nonce, None)
