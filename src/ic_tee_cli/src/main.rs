@@ -1,7 +1,6 @@
 use anyhow::Result;
 use candid::{pretty::candid::value::pp_value, CandidType, IDLValue, Principal};
 use clap::{Parser, Subcommand};
-use ed25519::pkcs8::{DecodePrivateKey, KeypairBytes};
 use ed25519_consensus::SigningKey;
 use ic_agent::{
     identity::{AnonymousIdentity, BasicIdentity},
@@ -82,7 +81,7 @@ pub enum Commands {
     /// verify a TEE attestation document
     TeeVerify {
         /// TEE kind to verify
-        #[arg(long, default_value = "Nitro")]
+        #[arg(long, default_value = "NITRO")]
         kind: String,
 
         /// TEE attestation document
@@ -254,7 +253,7 @@ async fn main() -> Result<()> {
                     .get_cose_encrypted_key(&SettingPath {
                         ns: ns.clone(),
                         user_owned: false,
-                        subject: path.subject.clone(),
+                        subject: path.subject,
                         key: ByteBuf::from(COSE_SECRET_PERMANENT_KEY.as_bytes()),
                         version: 0,
                     })

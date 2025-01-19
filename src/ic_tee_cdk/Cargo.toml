@@ -14,6 +14,7 @@ candid = { workspace = true }
 ciborium = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
+sha3 = { workspace = true }
 ic-canister-sig-creation = { workspace = true }
 
 [dev-dependencies]

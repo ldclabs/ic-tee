@@ -14,7 +14,7 @@ use crate::{BasicIdentity, TEEIdentity};
 
 #[derive(Clone)]
 pub struct TEEAgent {
-    pub auth_canister: Principal,
+    pub identity_canister: Principal,
     pub cose_canister: Principal,
     pub identity: TEEIdentity,
     pub agent: Agent,
@@ -23,8 +23,8 @@ pub struct TEEAgent {
 impl TEEAgent {
     pub async fn new(
         host: &str,
-        authentication_canister: Principal,
-        configuration_canister: Principal,
+        identity_canister: Principal,
+        cose_canister: Principal,
     ) -> Result<Self, String> {
         let identity = TEEIdentity::new();
         let agent = Agent::builder()
@@ -37,8 +37,8 @@ impl TEEAgent {
             agent.fetch_root_key().await.map_err(format_error)?;
         }
         Ok(Self {
-            auth_canister: authentication_canister,
-            cose_canister: configuration_canister,
+            identity_canister,
+            cose_canister,
             identity,
             agent,
         })
@@ -48,7 +48,7 @@ impl TEEAgent {
         let mut agent = self.agent.clone();
         agent.set_identity(identity.clone());
         Self {
-            auth_canister: self.auth_canister,
+            identity_canister: self.identity_canister,
             cose_canister: self.cose_canister,
             identity,
             agent,
@@ -79,7 +79,7 @@ impl TEEAgent {
         let mut id = self.identity.clone();
         let (user_key, delegation) = {
             let res: Result<SignInResponse, String> = self
-                .canister_update(&self.auth_canister, "sign_in", (kind, attestation))
+                .canister_update(&self.identity_canister, "sign_in", (kind, attestation))
                 .await
                 .map_err(format_error)?;
             let res = res?;
@@ -87,7 +87,7 @@ impl TEEAgent {
 
             let res: Result<SignedDelegation, String> = self
                 .canister_query(
-                    &self.auth_canister,
+                    &self.identity_canister,
                     "get_delegation",
                     (
                         res.seed,

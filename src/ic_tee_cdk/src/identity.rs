@@ -3,7 +3,7 @@ use ic_canister_sig_creation::CanisterSigPublicKey;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
-use crate::to_cbor_bytes;
+use crate::{sha3_256_n, to_cbor_bytes};
 
 pub const SESSION_EXPIRES_IN_MS: u64 = 1000 * 3600 * 24; // 1 day
 
@@ -43,9 +43,9 @@ pub fn canister_user_key(
     sub_seed: Option<&[u8]>,
 ) -> CanisterSigPublicKey {
     let seed = if let Some(sub_seed) = sub_seed {
-        to_cbor_bytes(&(kind, seed, sub_seed))
+        to_cbor_bytes(&(kind, sha3_256_n([seed, sub_seed])))
     } else {
-        to_cbor_bytes(&(kind, seed))
+        to_cbor_bytes(&(kind, sha3_256_n([seed])))
     };
     CanisterSigPublicKey::new(canister, seed)
 }
@@ -67,12 +67,12 @@ mod tests {
         println!("{:?}", const_hex::encode(user_key.as_slice()));
         assert!(is_sub(&user_key, canister.as_slice()));
         assert!(is_sub(&user_key, kind.as_bytes()));
-        assert!(is_sub(&user_key, seed.as_slice()));
+        assert!(!is_sub(&user_key, seed.as_slice()));
 
         let sub_seed = [1u8, 2u8, 3u8, 4u8];
         let user_key2 = canister_user_key(canister, kind, &seed, Some(&sub_seed)).to_der();
         assert_ne!(user_key, user_key2);
-        assert!(is_sub(&user_key2, seed.as_slice()));
-        assert!(is_sub(&user_key2, sub_seed.as_slice()));
+        assert!(!is_sub(&user_key2, seed.as_slice()));
+        assert!(!is_sub(&user_key2, sub_seed.as_slice()));
     }
 }

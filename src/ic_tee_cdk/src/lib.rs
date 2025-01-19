@@ -1,6 +1,7 @@
 use candid::Principal;
 use ciborium::into_writer;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
 
 pub mod identity;
 
@@ -18,6 +19,14 @@ pub fn to_cbor_bytes(obj: &impl Serialize) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::new();
     into_writer(obj, &mut buf).expect("failed to encode in CBOR format");
     buf
+}
+
+pub fn sha3_256_n<const N: usize>(array: [&[u8]; N]) -> [u8; 32] {
+    let mut hasher = Sha3_256::new();
+    for data in array {
+        hasher.update(data);
+    }
+    hasher.finalize().into()
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

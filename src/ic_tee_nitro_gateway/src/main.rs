@@ -121,6 +121,7 @@ async fn main() -> Result<(), BoxError> {
         Ok(_) => Ok(()),
         Err(err) => {
             log::error!(target: LOG_TARGET, "server error: {:?}", err);
+            tokio::time::sleep(Duration::from_secs(1)).await;
             Err(err)
         }
     }
@@ -138,6 +139,10 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let identity_canister = Principal::from_text(cli.identity_canister)?;
     let cose_canister = Principal::from_text(cli.cose_canister)?;
     let mut tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister).await?;
+
+    log::info!(target: LOG_TARGET,
+        elapsed = start.elapsed().as_millis() as u64;
+       "start with principal: {:?}", tee_agent.get_principal().to_text());
 
     let namespace = cli.cose_namespace;
     let session_expires_in_ms = cli.session_expires_in_ms.unwrap_or(SESSION_EXPIRES_IN_MS);

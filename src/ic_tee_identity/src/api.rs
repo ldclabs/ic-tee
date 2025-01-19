@@ -29,7 +29,7 @@ fn whoami() -> Principal {
 #[ic_cdk::update]
 fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String> {
     let attestation = match kind.as_str() {
-        "Nitro" => parse_and_verify(attestation.as_slice())?,
+        "NITRO" => parse_and_verify(attestation.as_slice())?,
         _ => Err("unsupported attestation kind".to_string())?,
     };
 
@@ -104,7 +104,7 @@ fn get_delegation(
     session_key: ByteBuf,
     expiration: u64,
 ) -> Result<SignedDelegation, String> {
-    if seed.len() > 48 {
+    if seed.len() > 128 {
         return Err("invalid seed length".to_string());
     }
     let delegation_hash = delegation_signature_msg(session_key.as_slice(), expiration, None);
