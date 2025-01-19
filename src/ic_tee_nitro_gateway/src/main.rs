@@ -90,7 +90,7 @@ struct Cli {
     #[clap(long)]
     bootstrap_logtail: Option<String>,
 
-    /// where the logtail server is running on host (e.g. 127.0.0.1:9999)
+    /// IC host, default is https://icp-api.io, set it to http://localhost:4943 for local development
     #[clap(long, default_value = "https://icp-api.io")]
     ic_host: String,
 }
@@ -348,7 +348,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         Ok(_) => Ok(()),
         Err(err) => {
             log::error!(target: LOG_TARGET, "server error: {:?}", err);
-            Err(err.into())
+            Err(err)
         }
     }
 }

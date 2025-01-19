@@ -2439,9 +2439,9 @@ dependencies = [
 
 [[package]]
 name = "ic_cose"
-version = "0.6.6"
+version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c92910e30e5b1d2a71bc39b7f6f3a64fe0c68b637d1148ec5ee307c4e6bbafe"
+checksum = "289265de8dd72ad07518cd3d52ad46d2918afb3b00d7ed66fa5c3a673ffd4171"
 dependencies = [
  "async-trait",
  "candid",
@@ -2454,9 +2454,9 @@ dependencies = [
 
 [[package]]
 name = "ic_cose_types"
-version = "0.6.6"
+version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1dfb73a23f3dfe304f9c391be4e0c4777e9f9e9087dcc1853cd6188c303f292"
+checksum = "a7dd0b513a6eb63f0c10c419646bd81e651d5b5168707039b3638bf2fea706cd"
 dependencies = [
  "aes-gcm",
  "candid",
@@ -4096,9 +4096,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.135"
+version = "1.0.136"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b0d7ba2887406110130a978386c4e1befb98c674b4fba677954e4db976630d9"
+checksum = "336a0c23cf42a38d9eaa7cd22c7040d04e1228a19a933890805ffd00a16437d2"
 dependencies = [
  "itoa",
  "memchr",

@@ -11,6 +11,8 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     # - uses: dfinity/setup-dfx@main
     - name: Build canisters
+      env:
+        RUSTFLAGS: -C target-feature=+crt-static
       run: |
         rustup target add wasm32-unknown-unknown
         cargo install ic-wasm
@@ -28,6 +30,10 @@ jobs:
           SHA256="$(sha256sum < "out/$CAN.wasm.gz" | sed 's/ .*$//g')"
           echo $SHA256 > "out/$CAN.wasm.gz.$SHA256.txt"
         done
+        cargo build --release --locked -p ic_tee_nitro_gateway
+        cp "target/release/ic_tee_nitro_gateway" out/
+        SHA256="$(sha256sum < "out/ic_tee_nitro_gateway" | sed 's/ .*$//g')"
+        echo $SHA256 > "out/ic_tee_nitro_gateway.$SHA256.txt"
         ls -lah out
     - name: Release
       uses: softprops/action-gh-release@v2
