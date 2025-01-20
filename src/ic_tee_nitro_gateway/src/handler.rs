@@ -565,7 +565,7 @@ fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInforma
                     _ => return true,
                 }
             }
-            _ => return true,
+            _ => return false,
         };
 
         return path.ns == ns && path.subject == Some(info.id) && path.user_owned;

@@ -120,8 +120,8 @@ async fn main() -> Result<(), BoxError> {
     match bootstrap(cli).await {
         Ok(_) => Ok(()),
         Err(err) => {
-            log::error!(target: LOG_TARGET, "server error: {:?}", err);
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            log::error!(target: LOG_TARGET, "bootstrap error: {:?}", err);
+            tokio::time::sleep(Duration::from_secs(3)).await;
             Err(err)
         }
     }
