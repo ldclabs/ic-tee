@@ -10,7 +10,7 @@
 ## Usage
 
 ```bash
-ic_tee_daemon --outbound-vsock-addr 3:448 --outbound_listen_addr 127.0.0.1:448 --inbound-vsock-addr 8:443 --inbound-listen-addr 127.0.0.1:8443 --logtail-addr 127.0.0.1:9999
+ic_tee_daemon --outbound-vsock-addr 3:448 --outbound_listen_addr 127.0.0.1:448 --inbound-vsock-addr 8:443 --inbound-listen-addr 127.0.0.1:8443
 ```
 
 ## License

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
 use structured_logger::{async_json::new_writer, get_env_level, Builder};
-use tokio::net::TcpStream;
 
 mod helper;
 mod ip_to_vsock_transparent;
@@ -25,23 +24,14 @@ pub struct Cli {
     /// IP address of listener in enclave (e.g. 127.0.0.1:8443)
     #[clap(long, default_value = "127.0.0.1:8443")]
     inbound_listen_addr: String,
-
-    /// where the logtail server is running on host (e.g. 127.0.0.1:9999)
-    #[arg(long, default_value = "127.0.0.1:9999")]
-    logtail_addr: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let writer = {
-        let stream = TcpStream::connect(&cli.logtail_addr).await?;
-        stream.writable().await?;
-        new_writer(stream)
-    };
 
     Builder::with_level(&get_env_level().to_string())
-        .with_target_writer("*", writer)
+        .with_target_writer("*", new_writer(tokio::io::stdout()))
         .init();
 
     let serve_vsock_to_ip = async {

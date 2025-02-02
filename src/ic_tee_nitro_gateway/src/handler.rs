@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::{header, uri::Uri, HeaderMap, StatusCode},
+    http::{header, uri::Uri, HeaderMap, StatusCode, Version},
     response::IntoResponse,
 };
 use candid::decode_args;
@@ -453,6 +453,7 @@ pub async fn proxy(
 
     *req.uri_mut() = Uri::try_from(uri)
         .map_err(|err| Content::Text(err.to_string(), Some(StatusCode::BAD_REQUEST)))?;
+    *req.version_mut() = Version::HTTP_11;
 
     match app.http_client.request(req).await {
         Ok(res) => Ok(res.into_response()),
