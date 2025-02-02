@@ -7,15 +7,15 @@ use tokio_vsock::{VsockAddr, VsockStream};
 
 use crate::helper::AddrInfo;
 
-pub async fn serve(listen_addr: &str, server_addr: VsockAddr) -> Result<()> {
+pub async fn serve(listen_addr: &str, proxy_addr: VsockAddr) -> Result<()> {
     let listener = TcpListener::bind(listen_addr)
         .await
         .context("failed to bind listener")?;
-    log::info!(target: "ip_to_vsock_transparent", "listening on {}, proxying to: {:?}", listen_addr, server_addr);
+    log::info!(target: "ip_to_vsock_transparent", "listening on {}, proxying to: {:?}", listen_addr, proxy_addr);
 
     while let Ok((inbound, _)) = listener.accept().await {
         tokio::spawn(async move {
-            if let Err(err) = transfer(inbound, server_addr).await {
+            if let Err(err) = transfer(inbound, proxy_addr).await {
                 log::error!(target: "ip_to_vsock_transparent", "error in transfer: {:?}", err)
             }
         });

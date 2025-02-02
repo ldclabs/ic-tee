@@ -1,5 +1,5 @@
 # base image
-FROM --platform=linux/amd64 rust:slim-bookworm AS builder
+FROM rust:slim-bookworm AS builder
 
 RUN apt-get update \
     && apt-get install -y gcc g++ libc6-dev pkg-config libssl-dev wget
@@ -19,7 +19,7 @@ RUN mv linux-amd64/dnsproxy ./ \
     && rm -rf linux-amd64 \
     && chmod +x dnsproxy
 
-RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.2.12/ic_tee_daemon
+RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.2.13/ic_tee_daemon
 RUN chmod +x ic_tee_daemon
 
 WORKDIR /build
@@ -27,7 +27,7 @@ COPY src ./src
 COPY Cargo.toml Cargo.lock ./
 RUN cargo build --release --locked -p ic_tee_nitro_gateway
 
-FROM --platform=linux/amd64 debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 
 # install dependency tools
 RUN apt-get update \

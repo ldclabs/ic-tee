@@ -14,13 +14,17 @@ pub struct Cli {
     #[clap(long, default_value = "3:448")]
     outbound_vsock_addr: String,
 
-    /// IP address of listener in enclave (e.g. 127.0.0.1:8443)
-    #[clap(long, default_value = "127.0.0.1:8443")]
-    inbound_listen_addr: String,
+    /// IP address to listen for outbound connections from enclave (e.g. 127.0.0.1:448)
+    #[clap(long, default_value = "127.0.0.1:448")]
+    outbound_listen_addr: String,
 
     /// VSOCK address for inbound connections to enclave (e.g. 8:443)
     #[clap(long, default_value = "8:443")]
     inbound_vsock_addr: String,
+
+    /// IP address of listener in enclave (e.g. 127.0.0.1:8443)
+    #[clap(long, default_value = "127.0.0.1:8443")]
+    inbound_listen_addr: String,
 
     /// where the logtail server is running on host (e.g. 127.0.0.1:9999)
     #[arg(long, default_value = "127.0.0.1:9999")]
@@ -50,7 +54,7 @@ async fn main() -> Result<()> {
     let serve_ip_to_vsock_transparent = async {
         let vsock_addr =
             helper::split_vsock(&cli.outbound_vsock_addr).map_err(anyhow::Error::msg)?;
-        ip_to_vsock_transparent::serve(&cli.outbound_vsock_addr, vsock_addr).await?;
+        ip_to_vsock_transparent::serve(&cli.outbound_listen_addr, vsock_addr).await?;
         Ok(())
     };
 
