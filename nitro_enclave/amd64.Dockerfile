@@ -8,20 +8,19 @@ RUN apt-get update \
 WORKDIR /app
 
 # supervisord to manage programs
-RUN wget -O supervisord http://public.artifacts.marlin.pro/projects/enclaves/supervisord_master_linux_amd64
-RUN chmod +x supervisord
-
-# transparent proxy component inside the enclave to enable outgoing connections
-RUN wget -O ip-to-vsock-transparent http://public.artifacts.marlin.pro/projects/enclaves/ip-to-vsock-transparent_v1.0.0_linux_amd64
-RUN chmod +x ip-to-vsock-transparent
-
-# proxy to expose attestation server outside the enclave
-RUN wget -O vsock-to-ip http://public.artifacts.marlin.pro/projects/enclaves/vsock-to-ip_v1.0.0_linux_amd64
-RUN chmod +x vsock-to-ip
+RUN wget -qO- https://github.com/ochinchina/supervisord/releases/download/v0.7.3/supervisord_0.7.3_Linux_64-bit.tar.gz | tar xvz
+RUN mv supervisord_0.7.3_Linux_64-bit/supervisord ./ \
+    && rm -rf supervisord_0.7.3_Linux_64-bit \
+    && chmod +x supervisord
 
 # dnsproxy to provide DNS services inside the enclave
 RUN wget -qO- https://github.com/AdguardTeam/dnsproxy/releases/download/v0.73.3/dnsproxy-linux-amd64-v0.73.3.tar.gz | tar xvz
-RUN mv linux-amd64/dnsproxy ./ && chmod +x dnsproxy
+RUN mv linux-amd64/dnsproxy ./ \
+    && rm -rf linux-amd64 \
+    && chmod +x dnsproxy
+
+RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.2.12/ic_tee_daemon
+RUN chmod +x ic_tee_daemon
 
 WORKDIR /build
 COPY src ./src
