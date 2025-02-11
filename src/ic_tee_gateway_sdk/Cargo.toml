@@ -1,0 +1,23 @@
+[package]
+name = "ic_tee_gateway_sdk"
+description = "The rust SDK for the IC TEE Gateway"
+repository = "https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_gateway_sdk"
+publish = true
+version.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+
+[dependencies]
+http = { workspace = true }
+candid = { workspace = true }
+ciborium = { workspace = true }
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+thiserror = { workspace = true }
+ic_cose = { workspace = true }
+ic_cose_types = { workspace = true }
+reqwest = { workspace = true }
+
+[dev-dependencies]

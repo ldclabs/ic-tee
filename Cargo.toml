@@ -4,6 +4,7 @@ members = [
   "src/ic_tee_cdk",
   "src/ic_tee_cli",
   "src/ic_tee_daemon",
+  "src/ic_tee_gateway_sdk",
   "src/ic_tee_host_daemon",
   "src/ic_tee_identity",
   "src/ic_tee_logtail",
