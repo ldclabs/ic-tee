@@ -34,9 +34,11 @@ use ic_cose_types::{
     },
     to_cbor_bytes, CanisterCaller,
 };
+use ic_tee_cdk::TEEAppInformation;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_bytes::ByteArray;
 use std::{collections::HashMap, time::Duration};
+use tokio_util::sync::CancellationToken;
 
 use crate::http::{canister_rpc, cbor_rpc, http_rpc, HttpRPCError, RPCRequest, CONTENT_TYPE_CBOR};
 
@@ -52,6 +54,7 @@ pub struct Client {
     pub http: reqwest::Client,
     pub outer_http: reqwest::Client,
     pub cose_canister: Principal,
+    endpoint_info: String,
     endpoint_keys: String,
     endpoint_identity: String,
     endpoint_canister_query: String,
@@ -102,7 +105,7 @@ impl Client {
             .http2_keep_alive_timeout(Duration::from_secs(15))
             .http2_keep_alive_while_idle(true)
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(120))
             .user_agent(user_agent)
             .build()
             .expect("Anda reqwest client should build");
@@ -111,10 +114,33 @@ impl Client {
             http,
             outer_http,
             cose_canister,
+            endpoint_info: format!("{}/information", tee_host),
             endpoint_keys: format!("{}/keys", tee_host),
             endpoint_identity: format!("{}/identity", tee_host),
             endpoint_canister_query: format!("{}/canister/query", tee_host),
             endpoint_canister_update: format!("{}/canister/update", tee_host),
+        }
+    }
+
+    pub async fn connect_tee(
+        &self,
+        cancel_token: CancellationToken,
+    ) -> Result<TEEAppInformation, BoxError> {
+        loop {
+            if let Ok(tee_info) = self.http.get(&self.endpoint_info).send().await {
+                let tee_info = tee_info.bytes().await?;
+                let tee_info: TEEAppInformation = from_reader(&tee_info[..])?;
+                return Ok(tee_info);
+            }
+
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    return Err("connect_tee cancelled".into());
+                },
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {},
+            }
+
+            log::info!("connecting TEE service again");
         }
     }
 
@@ -344,7 +370,7 @@ impl Client {
         &self,
         url: &str,
         method: http::Method,
-        message_digest: &[u8; 32],
+        message_digest: [u8; 32],
         headers: Option<http::HeaderMap>,
         body: Option<Vec<u8>>, // default is empty
     ) -> Result<reqwest::Response, BoxError> {

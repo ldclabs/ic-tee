@@ -29,7 +29,7 @@ impl TEEAgent {
         let identity = TEEIdentity::new();
         let agent = Agent::builder()
             .with_url(host)
-            .with_verify_query_signatures(true)
+            .with_verify_query_signatures(false)
             .with_identity(identity.clone())
             .build()
             .map_err(format_error)?;

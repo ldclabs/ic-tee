@@ -10,6 +10,7 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
 http = { workspace = true }
 candid = { workspace = true }
 ciborium = { workspace = true }
@@ -19,5 +20,8 @@ thiserror = { workspace = true }
 ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
 reqwest = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
