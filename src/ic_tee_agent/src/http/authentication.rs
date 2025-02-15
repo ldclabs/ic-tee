@@ -123,13 +123,22 @@ impl UserSignature {
     /// - Canister must be in delegation targets (if specified)
     pub fn verify_with(
         &self,
-        canister: Principal,
         now_ms: u64,
         // fn verify_sig(pubkey: &[u8], msg: &[u8], sig: &[u8]) -> Result<(), String>
         verify: impl Fn(&[u8], &[u8], &[u8]) -> Result<(), String>,
+        expect_target: Option<Principal>,
+        expect_digest: Option<&[u8]>,
     ) -> Result<(), AuthenticationError> {
         if self.user == ANONYMOUS_PRINCIPAL {
             return Err(AuthenticationError::AnonymousSignatureNotAllowed);
+        }
+
+        if let Some(expect_digest) = expect_digest {
+            if self.digest != expect_digest {
+                return Err(AuthenticationError::VerifyFailed(
+                    "Content digest does not match".to_string(),
+                ));
+            }
         }
 
         if self.delegation.len() > 3 {
@@ -156,7 +165,12 @@ impl UserSignature {
             let targets = match &d.delegation.targets {
                 Some(targets) => {
                     has_targets = true;
-                    in_targets = in_targets || targets.contains(&canister);
+                    in_targets = in_targets
+                        || if let Some(target) = &expect_target {
+                            targets.contains(target)
+                        } else {
+                            false
+                        };
                     Some(
                         targets
                             .iter()
@@ -179,7 +193,7 @@ impl UserSignature {
 
         if has_targets && !in_targets {
             return Err(AuthenticationError::CanisterNotInDelegationTargets(
-                canister,
+                expect_target,
             ));
         }
 
@@ -199,8 +213,8 @@ pub enum AuthenticationError {
     InvalidDelegationExpiry(String),
     #[error("Signature is not allowed for the anonymous user.")]
     AnonymousSignatureNotAllowed,
-    #[error("Canister '{0}' is not one of the delegation targets.")]
-    CanisterNotInDelegationTargets(Principal),
+    #[error("Canister '{0:?}' is not one of the delegation targets.")]
+    CanisterNotInDelegationTargets(Option<Principal>),
 }
 
 fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
@@ -212,6 +226,18 @@ fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+pub fn get_caller(headers: &HeaderMap) -> Principal {
+    if let Some(caller) = headers.get(&HEADER_IC_TEE_CALLER) {
+        if let Ok(caller) = Principal::from_text(caller.to_str().unwrap_or_default()) {
+            caller
+        } else {
+            ANONYMOUS_PRINCIPAL
+        }
+    } else {
+        ANONYMOUS_PRINCIPAL
+    }
 }
 
 pub fn sign_msg_to_headers(
@@ -290,13 +316,9 @@ mod tests {
         sign_msg_to_headers(id, &mut headers, msg).unwrap();
 
         let mut us = UserSignature::try_from(&headers).unwrap();
-        assert!(us
-            .verify_with(Principal::anonymous(), unix_ms(), verify_sig)
-            .is_ok());
+        assert!(us.verify_with(unix_ms(), verify_sig, None, None).is_ok());
 
         us.digest = sha3_256(b"hello world 2").to_vec();
-        assert!(us
-            .verify_with(Principal::anonymous(), unix_ms(), verify_sig)
-            .is_err());
+        assert!(us.verify_with(unix_ms(), verify_sig, None, None).is_err());
     }
 }

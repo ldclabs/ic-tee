@@ -14,8 +14,7 @@ use ic_cose_types::{
 use ic_tee_agent::{
     agent::TEEAgent,
     http::{
-        sign_digest_to_headers, Content, UserSignature, ANONYMOUS_PRINCIPAL, HEADER_IC_TEE_CALLER,
-        HEADER_IC_TEE_CONTENT_DIGEST, HEADER_IC_TEE_DELEGATION, HEADER_IC_TEE_ID,
+        sign_digest_to_headers, Content, UserSignature, ANONYMOUS_PRINCIPAL, HEADER_IC_TEE_CALLER, HEADER_IC_TEE_DELEGATION, HEADER_IC_TEE_ID,
         HEADER_IC_TEE_INSTANCE, HEADER_IC_TEE_PUBKEY, HEADER_IC_TEE_SIGNATURE,
         HEADER_X_FORWARDED_FOR, HEADER_X_FORWARDED_HOST, HEADER_X_FORWARDED_PROTO,
     },
@@ -159,7 +158,7 @@ impl AppState {
 pub async fn get_information(State(app): State<AppState>, req: Request) -> impl IntoResponse {
     let mut info = app.info.as_ref().clone();
     info.caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.verify_with(app.info.id, unix_ms(), verify_sig) {
+        match sig.verify_with(unix_ms(), verify_sig, Some(app.info.id), None) {
             Ok(_) => sig.user,
             Err(_) => ANONYMOUS_PRINCIPAL,
         }
@@ -195,7 +194,7 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
 /// public_server: GET /.well-known/attestation
 pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl IntoResponse {
     let caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.verify_with(app.info.id, unix_ms(), verify_sig) {
+        match sig.verify_with(unix_ms(), verify_sig, Some(app.info.id), None) {
             Ok(_) => sig.user,
             Err(_) => ANONYMOUS_PRINCIPAL,
         }
@@ -391,7 +390,7 @@ pub async fn proxy(
     };
 
     let caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.verify_with(app.info.id, unix_ms(), verify_sig) {
+        match sig.verify_with(unix_ms(), verify_sig, Some(app.info.id), None) {
             Ok(_) => sig.user,
             Err(err) => {
                 return Err(Content::Text(
@@ -410,7 +409,7 @@ pub async fn proxy(
     headers.remove(&HEADER_X_FORWARDED_HOST);
     headers.remove(&HEADER_X_FORWARDED_PROTO);
     headers.remove(&HEADER_IC_TEE_PUBKEY);
-    headers.remove(&HEADER_IC_TEE_CONTENT_DIGEST);
+    // headers.remove(&HEADER_IC_TEE_CONTENT_DIGEST); keep it to verify the digest in upstream
     headers.remove(&HEADER_IC_TEE_SIGNATURE);
     headers.remove(&HEADER_IC_TEE_DELEGATION);
 

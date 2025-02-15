@@ -1,4 +1,5 @@
 use anyhow::Result;
+use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use candid::{pretty::candid::value::pp_value, CandidType, IDLValue, Principal};
 use clap::{Parser, Subcommand};
 use ed25519_consensus::SigningKey;
@@ -30,9 +31,9 @@ use pkcs8::{
     },
     AlgorithmIdentifierRef, PrivateKeyInfo,
 };
-use rand::thread_rng;
+use rand::{thread_rng, RngCore};
 use serde_bytes::ByteBuf;
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, vec};
 
 static LOCAL_HOST: &str = "http://127.0.0.1:4943";
 static IC_HOST: &str = "https://icp-api.io";
@@ -76,6 +77,13 @@ pub enum Commands {
         /// sub seed to derive the principal
         #[arg(long)]
         sub_seed: Option<String>,
+    },
+    RandBytes {
+        #[arg(long, default_value = "32")]
+        len: usize,
+
+        #[arg(long, default_value = "hex")]
+        format: String,
     },
     /// verify a TEE attestation document
     TeeVerify {
@@ -198,6 +206,23 @@ async fn main() -> Result<()> {
             let principal = Principal::self_authenticating(user_key.to_der());
 
             println!("principal: {}", principal);
+        }
+
+        Some(Commands::RandBytes { len, format }) => {
+            let mut rng = thread_rng();
+            let mut bytes = vec![0u8; (*len).min(1024)];
+            rng.fill_bytes(&mut bytes);
+            match format.as_str() {
+                "hex" => {
+                    println!("{}", const_hex::encode(&bytes));
+                }
+                "base64" => {
+                    println!("{}", BASE64_URL_SAFE_NO_PAD.encode(&bytes));
+                }
+                _ => {
+                    println!("{:?}", bytes);
+                }
+            }
         }
 
         Some(Commands::TeeVerify { kind, doc, url }) => {

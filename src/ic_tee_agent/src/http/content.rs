@@ -7,6 +7,7 @@ use http::{
     header::{self, HeaderMap, HeaderValue},
     StatusCode,
 };
+use ic_cose_types::cose::sha3_256;
 use serde::{de::DeserializeOwned, Serialize};
 
 pub static CONTENT_TYPE_CBOR: &str = "application/cbor";
@@ -16,7 +17,13 @@ pub enum Content<T> {
     JSON(T, Option<StatusCode>),
     CBOR(T, Option<StatusCode>),
     Text(String, Option<StatusCode>),
-    Ohter(String, Option<StatusCode>),
+    Other(String, Option<StatusCode>),
+}
+
+/// extract content with SHA3 hash from request body
+pub enum ContentWithSHA3<T> {
+    JSON(T, [u8; 32]),
+    CBOR(T, [u8; 32]),
 }
 
 impl Content<()> {
@@ -32,11 +39,11 @@ impl Content<()> {
                 if accept.contains(CONTENT_TYPE_TEXT) {
                     return Content::Text("".to_string(), None);
                 }
-                return Content::Ohter(accept.to_string(), None);
+                return Content::Other(accept.to_string(), None);
             }
         }
 
-        Content::Ohter("unknown".to_string(), None)
+        Content::Other("unknown".to_string(), None)
     }
 
     pub fn from_content_type(headers: &HeaderMap) -> Self {
@@ -58,7 +65,7 @@ impl Content<()> {
             }
         }
 
-        Content::Ohter("unknown".to_string(), None)
+        Content::Other("unknown".to_string(), None)
     }
 }
 
@@ -90,6 +97,42 @@ where
                         .into_response()
                 })?;
                 Ok(Self::CBOR(value, None))
+            }
+            _ => Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()),
+        }
+    }
+}
+
+impl<S, T> FromRequest<S> for ContentWithSHA3<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match Content::from_content_type(req.headers()) {
+            Content::JSON(_, _) => {
+                let body = Bytes::from_request(req, state)
+                    .await
+                    .map_err(IntoResponse::into_response)?;
+                let value: T = serde_json::from_slice(&body).map_err(|err| {
+                    Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
+                        .into_response()
+                })?;
+                let hash = sha3_256(&body);
+                Ok(Self::JSON(value, hash))
+            }
+            Content::CBOR(_, _) => {
+                let body = Bytes::from_request(req, state)
+                    .await
+                    .map_err(IntoResponse::into_response)?;
+                let value: T = ciborium::from_reader(&body[..]).map_err(|err| {
+                    Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
+                        .into_response()
+                })?;
+                let hash = sha3_256(&body);
+                Ok(Self::CBOR(value, hash))
             }
             _ => Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()),
         }
@@ -152,7 +195,7 @@ where
                 v,
             )
                 .into_response(),
-            Self::Ohter(v, c) => (
+            Self::Other(v, c) => (
                 c.unwrap_or(StatusCode::UNSUPPORTED_MEDIA_TYPE),
                 [(
                     header::CONTENT_TYPE,
