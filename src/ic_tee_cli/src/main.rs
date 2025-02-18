@@ -4,7 +4,7 @@ use candid::{pretty::candid::value::pp_value, CandidType, IDLValue, Principal};
 use clap::{Parser, Subcommand};
 use ed25519_consensus::SigningKey;
 use ic_agent::{
-    identity::{AnonymousIdentity, BasicIdentity},
+    identity::{AnonymousIdentity, BasicIdentity, Secp256k1Identity},
     Identity,
 };
 use ic_cose::{
@@ -156,7 +156,8 @@ pub enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let identity = load_identity(&cli.identity)?;
+    let identity = load_identity(&cli.identity).map_err(anyhow::Error::msg)?;
+    let identity = Arc::new(identity);
     let host = if cli.ic { IC_HOST } else { LOCAL_HOST };
 
     match &cli.command {
@@ -459,15 +460,18 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_identity(path: &str) -> Result<Arc<dyn Identity>> {
+fn load_identity(path: &str) -> Result<Box<dyn Identity>> {
     if path == "Anonymous" {
-        return Ok(Arc::new(AnonymousIdentity));
+        return Ok(Box::new(AnonymousIdentity));
     }
 
     let content = std::fs::read_to_string(path)?;
-    match BasicIdentity::from_pem(content.as_bytes()) {
-        Ok(identity) => Ok(Arc::new(identity)),
-        Err(err) => Err(err.into()),
+    match Secp256k1Identity::from_pem(content.as_bytes()) {
+        Ok(identity) => Ok(Box::new(identity)),
+        Err(_) => match BasicIdentity::from_pem(content.as_bytes()) {
+            Ok(identity) => Ok(Box::new(identity)),
+            Err(err) => Err(err.into()),
+        },
     }
 }
 

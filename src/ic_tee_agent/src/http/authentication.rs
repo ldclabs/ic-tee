@@ -217,7 +217,8 @@ pub enum AuthenticationError {
     CanisterNotInDelegationTargets(Option<Principal>),
 }
 
-fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
+/// Extracts the base64-encoded data from the headers
+pub fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
     if let Some(val) = headers.get(key) {
         if let Ok(val) = val.to_str() {
             if let Ok(data) = URL_SAFE_NO_PAD.decode(val.trim().trim_end_matches('=')) {
@@ -228,6 +229,7 @@ fn get_data(headers: &HeaderMap, key: &HeaderName) -> Option<Vec<u8>> {
     None
 }
 
+/// Extracts the caller principal from the headers
 pub fn get_caller(headers: &HeaderMap) -> Principal {
     if let Some(caller) = headers.get(&HEADER_IC_TEE_CALLER) {
         if let Ok(caller) = Principal::from_text(caller.to_str().unwrap_or_default()) {
@@ -240,6 +242,7 @@ pub fn get_caller(headers: &HeaderMap) -> Principal {
     }
 }
 
+/// Signs the message and inserts the signature into the headers
 pub fn sign_msg_to_headers(
     identity: impl Identity,
     headers: &mut HeaderMap,
@@ -248,6 +251,7 @@ pub fn sign_msg_to_headers(
     sign_digest_to_headers(identity, headers, &sha3_256(msg))
 }
 
+/// Signs the digest and inserts the signature into the headers
 pub fn sign_digest_to_headers(
     identity: impl Identity,
     headers: &mut HeaderMap,
