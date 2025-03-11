@@ -1,5 +1,11 @@
 name: Release
 on:
+  workflow_dispatch:
+    inputs:
+      build_tag:
+        description: 'binary tag'
+        required: true
+        type: string
   push:
     tags:
       - 'v*'
@@ -31,8 +37,22 @@ jobs:
     - name: Build linux binary
       run: |
         sudo apt-get update
-        sudo apt-get install -y musl-tools
+        sudo apt-get install -y musl-tools libssl-dev pkg-config
         rustup target add x86_64-unknown-linux-musl
+        # Install musl openssl
+        wget https://github.com/openssl/openssl/archive/refs/tags/openssl-3.4.1.tar.gz
+        tar -xzf openssl-3.4.1.tar.gz
+        cd openssl-openssl-3.4.1
+        ./Configure --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64 no-shared
+        make -j$(nproc)
+        sudo make install
+        cd ..
+        # Set environment variables for cross-compilation
+        export OPENSSL_DIR=/usr/local/musl
+        export OPENSSL_STATIC=1
+        export PKG_CONFIG_ALLOW_CROSS=1
+        export PKG_CONFIG_SYSROOT_DIR=/usr/local/musl
+        export PKG_CONFIG_PATH=/usr/local/musl/lib/pkgconfig
         for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_daemon
         do
           cargo build --release --locked -p $PACK --target x86_64-unknown-linux-musl

@@ -19,7 +19,7 @@ RUN mv linux-amd64/dnsproxy ./ \
     && rm -rf linux-amd64 \
     && chmod +x dnsproxy
 
-RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.2.13/ic_tee_daemon
+RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.3.2/ic_tee_daemon
 RUN chmod +x ic_tee_daemon
 
 WORKDIR /build
