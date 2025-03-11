@@ -52,11 +52,11 @@ impl Content<()> {
                 if let Ok(mime) = content_type.parse::<mime::Mime>() {
                     if mime.type_() == "application" {
                         if mime.subtype() == "cbor"
-                            || mime.suffix().map_or(false, |name| name == "cbor")
+                            || mime.suffix().is_some_and(|name| name == "cbor")
                         {
                             return Content::CBOR((), None);
                         } else if mime.subtype() == "json"
-                            || mime.suffix().map_or(false, |name| name == "json")
+                            || mime.suffix().is_some_and(|name| name == "json")
                         {
                             return Content::JSON((), None);
                         }

@@ -4,7 +4,6 @@ use ic_agent::{
     identity::{DelegatedIdentity, Delegation, SignedDelegation},
     {agent::EnvelopeContent, Signature},
 };
-use ic_tee_cdk::identity;
 use rand::thread_rng;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -120,19 +119,12 @@ impl TEEIdentity {
         &mut self,
         user_key: Vec<u8>,
         session_key: (SigningKey, Vec<u8>),
-        delegation: identity::SignedDelegation,
+        delegation: SignedDelegation,
     ) {
         self.principal = Principal::self_authenticating(&user_key);
         self.user_key = user_key;
         self.expiration = delegation.delegation.expiration as u128;
-        self.delegation = vec![SignedDelegation {
-            delegation: Delegation {
-                pubkey: delegation.delegation.pubkey.to_vec(),
-                expiration: delegation.delegation.expiration,
-                targets: delegation.delegation.targets.clone(),
-            },
-            signature: delegation.signature.to_vec(),
-        }];
+        self.delegation = vec![delegation];
         let id = DelegatedIdentity::new_unchecked(
             self.user_key.clone(),
             Box::new(BasicIdentity::from_signing_key(self.session_key.0.clone())),
@@ -224,4 +216,15 @@ impl Identity for TEEIdentity {
 pub fn identity_from(secret: [u8; 32]) -> BasicIdentity {
     let key = SigningKey::from(secret);
     BasicIdentity::from_signing_key(key)
+}
+
+pub fn signed_delegation_from(src: ic_auth_types::SignedDelegation) -> SignedDelegation {
+    SignedDelegation {
+        delegation: Delegation {
+            pubkey: src.delegation.pubkey.into_vec(),
+            expiration: src.delegation.expiration,
+            targets: src.delegation.targets,
+        },
+        signature: src.signature.into_vec(),
+    }
 }

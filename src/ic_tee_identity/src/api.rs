@@ -1,13 +1,9 @@
 use candid::Principal;
 use ciborium::from_reader;
+use ic_auth_types::{Delegation, SignInResponse, SignedDelegation};
+use ic_auth_verifier::{user_public_key_from_der, verify_basic_sig};
 use ic_canister_sig_creation::delegation_signature_msg;
-use ic_crypto_standalone_sig_verifier::{
-    user_public_key_from_bytes, verify_basic_sig_by_public_key,
-};
-use ic_tee_cdk::{
-    canister_user_key, AttestationUserRequest, Delegation, SignInParams, SignInResponse,
-    SignedDelegation,
-};
+use ic_tee_cdk::{canister_user_key, AttestationUserRequest, SignInParams};
 use ic_tee_nitro_attestation::parse_and_verify;
 use serde_bytes::ByteBuf;
 
@@ -48,15 +44,9 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
         .nonce
         .ok_or_else(|| "missing nonce".to_string())?;
 
-    let (pk, _) = user_public_key_from_bytes(pubkey.as_slice())
-        .map_err(|err| format!("invalid public key: {:?}", err))?;
-    verify_basic_sig_by_public_key(
-        pk.algorithm_id,
-        user_data.as_slice(),
-        sig.as_slice(),
-        &pk.key,
-    )
-    .map_err(|err| format!("challenge verification failed: {:?}", err))?;
+    let (alg, pk) = user_public_key_from_der(pubkey.as_slice())?;
+    verify_basic_sig(alg, &pk, user_data.as_slice(), sig.as_slice())
+        .map_err(|err| format!("challenge verification failed: {:?}", err))?;
 
     let req: AttestationUserRequest<SignInParams> =
         from_reader(user_data.as_slice()).map_err(|err| format!("invalid user data: {:?}", err))?;

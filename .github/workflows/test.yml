@@ -13,4 +13,4 @@ jobs:
       - name: Run tests
         run: |
           cargo clippy --verbose --all-targets --all-features
-          cargo test --verbose --workspace -- --nocapture
+          cargo test --verbose --workspace --all-features -- --nocapture

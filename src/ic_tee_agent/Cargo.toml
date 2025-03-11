@@ -2,7 +2,7 @@
 name = "ic_tee_agent"
 description = "An agent to interact with the Internet Computer for Trusted Execution Environments (TEEs)"
 repository = "https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_agent"
-version = "0.3.1"
+version = "0.3.2"
 publish = true
 edition.workspace = true
 keywords.workspace = true
@@ -10,7 +10,7 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.2" }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.3" }
 http = { workspace = true }
 axum-core = { workspace = true }
 base64 = { workspace = true }
@@ -27,10 +27,9 @@ mime = { workspace = true }
 thiserror = { workspace = true }
 ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
+ic_auth_types = { workspace = true }
 ic-canister-sig-creation = { workspace = true }
 
 [dev-dependencies]
 lazy_static = { workspace = true }
 structured-logger = { workspace = true }
-ic-types = { workspace = true }
-ic-crypto-standalone-sig-verifier = { workspace = true }

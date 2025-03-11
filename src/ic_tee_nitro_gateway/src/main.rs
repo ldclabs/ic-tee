@@ -30,9 +30,7 @@ use tokio::{net::TcpStream, signal};
 use tokio_util::sync::CancellationToken;
 
 mod attestation;
-mod crypto;
 mod handler;
-mod ic_sig_verifier;
 
 use attestation::sign_attestation;
 

@@ -82,11 +82,11 @@ pub fn ed25519_sign_message(
     derivation_path: Vec<Vec<u8>>,
     msg: &[u8],
 ) -> ByteArray<64> {
-    let sk = ic_crypto_ed25519::PrivateKey::generate_from_seed(root_secret);
-    let path = ic_crypto_ed25519::DerivationPath::new(
+    let sk = ic_ed25519::PrivateKey::generate_from_seed(root_secret);
+    let path = ic_ed25519::DerivationPath::new(
         derivation_path
             .into_iter()
-            .map(ic_crypto_ed25519::DerivationIndex)
+            .map(ic_ed25519::DerivationIndex)
             .collect(),
     );
     let (sk, _) = sk.derive_subkey(&path);
@@ -108,11 +108,11 @@ pub fn ed25519_public_key(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
 ) -> (ByteArray<32>, ByteArray<32>) {
-    let sk = ic_crypto_ed25519::PrivateKey::generate_from_seed(root_secret);
-    let path = ic_crypto_ed25519::DerivationPath::new(
+    let sk = ic_ed25519::PrivateKey::generate_from_seed(root_secret);
+    let path = ic_ed25519::DerivationPath::new(
         derivation_path
             .into_iter()
-            .map(ic_crypto_ed25519::DerivationIndex)
+            .map(ic_ed25519::DerivationIndex)
             .collect(),
     );
     let pk = sk.public_key();
@@ -136,14 +136,14 @@ pub fn derive_ed25519_public_key(
     chain_code: &[u8; 32],
     derivation_path: Vec<Vec<u8>>,
 ) -> (ByteArray<32>, ByteArray<32>) {
-    let path = ic_crypto_ed25519::DerivationPath::new(
+    let path = ic_ed25519::DerivationPath::new(
         derivation_path
             .into_iter()
-            .map(ic_crypto_ed25519::DerivationIndex)
+            .map(ic_ed25519::DerivationIndex)
             .collect(),
     );
 
-    let pk = ic_crypto_ed25519::PublicKey::deserialize_raw(public_key).expect("invalid public key");
+    let pk = ic_ed25519::PublicKey::deserialize_raw(public_key).expect("invalid public key");
     let (pk, chain_code) = pk.derive_subkey_with_chain_code(&path, chain_code);
     (pk.serialize_raw().into(), chain_code.into())
 }
@@ -160,11 +160,11 @@ pub fn secp256k1_sign_message_bip340(
     derivation_path: Vec<Vec<u8>>,
     msg: &[u8],
 ) -> ByteArray<64> {
-    let sk = ic_crypto_secp256k1::PrivateKey::generate_from_seed(root_secret);
-    let path = ic_crypto_secp256k1::DerivationPath::new(
+    let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
+    let path = ic_secp256k1::DerivationPath::new(
         derivation_path
             .into_iter()
-            .map(ic_crypto_secp256k1::DerivationIndex)
+            .map(ic_secp256k1::DerivationIndex)
             .collect(),
     );
     let (sk, _) = sk.derive_subkey(&path);
@@ -184,11 +184,11 @@ pub fn secp256k1_sign_message_ecdsa(
     derivation_path: Vec<Vec<u8>>,
     msg: &[u8],
 ) -> ByteArray<64> {
-    let sk = ic_crypto_secp256k1::PrivateKey::generate_from_seed(root_secret);
-    let path = ic_crypto_secp256k1::DerivationPath::new(
+    let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
+    let path = ic_secp256k1::DerivationPath::new(
         derivation_path
             .into_iter()
-            .map(ic_crypto_secp256k1::DerivationIndex)
+            .map(ic_secp256k1::DerivationIndex)
             .collect(),
     );
     let (sk, _) = sk.derive_subkey(&path);
@@ -210,11 +210,11 @@ pub fn secp256k1_public_key(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
 ) -> (ByteArray<33>, ByteArray<32>) {
-    let sk = ic_crypto_secp256k1::PrivateKey::generate_from_seed(root_secret);
-    let path = ic_crypto_secp256k1::DerivationPath::new(
+    let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
+    let path = ic_secp256k1::DerivationPath::new(
         derivation_path
             .into_iter()
-            .map(ic_crypto_secp256k1::DerivationIndex)
+            .map(ic_secp256k1::DerivationIndex)
             .collect(),
     );
     let pk = sk.public_key();
@@ -243,14 +243,14 @@ pub fn derive_secp256k1_public_key(
     chain_code: &[u8; 32],
     derivation_path: Vec<Vec<u8>>,
 ) -> Result<(ByteArray<33>, ByteArray<32>), BoxError> {
-    let path = ic_crypto_secp256k1::DerivationPath::new(
+    let path = ic_secp256k1::DerivationPath::new(
         derivation_path
             .into_iter()
-            .map(ic_crypto_secp256k1::DerivationIndex)
+            .map(ic_secp256k1::DerivationIndex)
             .collect(),
     );
 
-    let pk = ic_crypto_secp256k1::PublicKey::deserialize_sec1(public_key)?;
+    let pk = ic_secp256k1::PublicKey::deserialize_sec1(public_key)?;
     let (pk, chain_code) = pk.derive_subkey_with_chain_code(&path, chain_code);
     let pk = pk.serialize_sec1(true);
     let pk: [u8; 33] = pk

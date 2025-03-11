@@ -1,39 +1,14 @@
-use candid::{CandidType, Principal};
+use candid::Principal;
 use ic_canister_sig_creation::CanisterSigPublicKey;
 use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
 
 use crate::{sha3_256_n, to_cbor_bytes};
 
 pub const SESSION_EXPIRES_IN_MS: u64 = 1000 * 3600 * 24; // 1 day
 
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct Delegation {
-    pub pubkey: ByteBuf,
-    pub expiration: u64,
-    pub targets: Option<Vec<Principal>>,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct SignedDelegation {
-    pub delegation: Delegation,
-    pub signature: ByteBuf,
-}
-
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct SignInParams {
     pub id_scope: String, // should be "image" or "enclave"
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct SignInResponse {
-    /// The session expiration time in nanoseconds since the UNIX epoch. This is the time at which
-    /// the delegation will no longer be valid.
-    pub expiration: u64,
-    /// The user canister public key. This key is used to derive the user principal.
-    pub user_key: ByteBuf,
-    /// seed is a part of the user_key
-    pub seed: ByteBuf,
 }
 
 pub fn canister_user_key(

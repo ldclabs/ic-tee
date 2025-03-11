@@ -106,6 +106,7 @@ impl Client {
             .http2_keep_alive_while_idle(true)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(120))
+            .gzip(true)
             .user_agent(user_agent)
             .build()
             .expect("Anda reqwest client should build");

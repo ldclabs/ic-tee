@@ -7,6 +7,10 @@ use axum::{
 use candid::decode_args;
 use ciborium::from_reader;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
+use ic_auth_verifier::envelope::{
+    SignedEnvelope, ANONYMOUS_PRINCIPAL, HEADER_IC_AUTH_DELEGATION, HEADER_IC_AUTH_PUBKEY,
+    HEADER_IC_AUTH_SIGNATURE, HEADER_IC_AUTH_USER,
+};
 use ic_cose_types::{
     format_error, to_cbor_bytes,
     types::{ECDHInput, ECDHOutput, SettingPath},
@@ -14,9 +18,8 @@ use ic_cose_types::{
 use ic_tee_agent::{
     agent::TEEAgent,
     http::{
-        sign_digest_to_headers, Content, UserSignature, ANONYMOUS_PRINCIPAL, HEADER_IC_TEE_CALLER, HEADER_IC_TEE_DELEGATION, HEADER_IC_TEE_ID,
-        HEADER_IC_TEE_INSTANCE, HEADER_IC_TEE_PUBKEY, HEADER_IC_TEE_SIGNATURE,
-        HEADER_X_FORWARDED_FOR, HEADER_X_FORWARDED_HOST, HEADER_X_FORWARDED_PROTO,
+        Content, HEADER_IC_TEE_ID, HEADER_IC_TEE_INSTANCE, HEADER_X_FORWARDED_FOR,
+        HEADER_X_FORWARDED_HOST, HEADER_X_FORWARDED_PROTO,
     },
     RPCRequest, RPCResponse,
 };
@@ -24,12 +27,13 @@ use ic_tee_cdk::{
     AttestationUserRequest, CanisterRequest, TEEAppInformation, TEEAppInformationJSON,
     TEEAttestation, TEEAttestationJSON,
 };
+use ic_tee_gateway_sdk::crypto;
 use ic_tee_nitro_attestation::AttestationRequest;
 use serde_bytes::{ByteArray, ByteBuf};
 use std::{collections::HashMap, sync::Arc};
 use structured_logger::unix_ms;
 
-use crate::{attestation::sign_attestation, crypto, ic_sig_verifier::verify_sig, TEE_KIND};
+use crate::{attestation::sign_attestation, TEE_KIND};
 
 type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 
@@ -157,9 +161,9 @@ impl AppState {
 /// public_server: GET /.well-known/information
 pub async fn get_information(State(app): State<AppState>, req: Request) -> impl IntoResponse {
     let mut info = app.info.as_ref().clone();
-    info.caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.verify_with(unix_ms(), verify_sig, Some(app.info.id), None) {
-            Ok(_) => sig.user,
+    info.caller = if let Some(se) = SignedEnvelope::try_from(req.headers()) {
+        match se.verify(unix_ms(), Some(app.info.id), None) {
+            Ok(_) => se.sender(),
             Err(_) => ANONYMOUS_PRINCIPAL,
         }
     } else {
@@ -193,9 +197,9 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
 /// local_server: GET /attestation
 /// public_server: GET /.well-known/attestation
 pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl IntoResponse {
-    let caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.verify_with(unix_ms(), verify_sig, Some(app.info.id), None) {
-            Ok(_) => sig.user,
+    let caller = if let Some(se) = SignedEnvelope::try_from(req.headers()) {
+        match se.verify(unix_ms(), Some(app.info.id), None) {
+            Ok(_) => se.sender(),
             Err(_) => ANONYMOUS_PRINCIPAL,
         }
     } else {
@@ -389,9 +393,9 @@ pub async fn proxy(
         ));
     };
 
-    let caller = if let Some(sig) = UserSignature::try_from(req.headers()) {
-        match sig.verify_with(unix_ms(), verify_sig, Some(app.info.id), None) {
-            Ok(_) => sig.user,
+    let caller = if let Some(se) = SignedEnvelope::try_from(req.headers()) {
+        match se.verify(unix_ms(), Some(app.info.id), None) {
+            Ok(_) => se.sender(),
             Err(err) => {
                 return Err(Content::Text(
                     err.to_string(),
@@ -408,13 +412,13 @@ pub async fn proxy(
     headers.remove(&HEADER_X_FORWARDED_FOR);
     headers.remove(&HEADER_X_FORWARDED_HOST);
     headers.remove(&HEADER_X_FORWARDED_PROTO);
-    headers.remove(&HEADER_IC_TEE_PUBKEY);
-    // headers.remove(&HEADER_IC_TEE_CONTENT_DIGEST); keep it to verify the digest in upstream
-    headers.remove(&HEADER_IC_TEE_SIGNATURE);
-    headers.remove(&HEADER_IC_TEE_DELEGATION);
+    headers.remove(&HEADER_IC_AUTH_PUBKEY);
+    // headers.remove(&HEADER_IC_AUTH_CONTENT_DIGEST); keep it to verify the digest in upstream
+    headers.remove(&HEADER_IC_AUTH_SIGNATURE);
+    headers.remove(&HEADER_IC_AUTH_DELEGATION);
 
     headers.insert(
-        &HEADER_IC_TEE_CALLER,
+        &HEADER_IC_AUTH_USER,
         caller.to_string().parse().map_err(|_| {
             Content::Text(
                 "unexpected caller ID".to_string(),
@@ -468,8 +472,10 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
         "sign_http" => {
             let (digest,): (ByteArray<32>,) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
+            let se =
+                SignedEnvelope::sign_digest(&app.tee_agent.identity, digest.into_array().into())?;
             let mut headers = HeaderMap::new();
-            sign_digest_to_headers(&app.tee_agent.identity, &mut headers, digest.as_slice())?;
+            se.to_headers(&mut headers)?;
             let headers: HashMap<&str, &str> = headers
                 .iter()
                 .map(|(k, v)| (k.as_str(), v.to_str().unwrap()))
@@ -577,7 +583,6 @@ fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInforma
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::decrypt_ecdh;
     use candid::{decode_args, encode_args, Principal};
     use ic_cose::rand_bytes;
     use ic_cose_types::{
@@ -707,7 +712,7 @@ mod tests {
         let res: RPCResponse = from_reader(&data[..]).unwrap();
         assert!(res.is_ok());
         let res: ECDHOutput<ByteBuf> = from_reader(res.unwrap().as_slice()).unwrap();
-        let key = decrypt_ecdh(secret.to_bytes(), &res).unwrap();
+        let key = crypto::decrypt_ecdh(secret.to_bytes(), &res).unwrap();
         assert_eq!(key.len(), 32);
     }
 }

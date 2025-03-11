@@ -5,12 +5,12 @@ use candid::{
 use ciborium::into_writer;
 use ed25519_consensus::SigningKey;
 use ic_agent::Agent;
+use ic_auth_types::{SignInResponse, SignedDelegation};
 use ic_cose::client::CoseSDK;
 use ic_cose_types::{format_error, types::SignDelegationInput, BoxError, CanisterCaller};
-use ic_tee_cdk::{Delegation, SignInResponse, SignedDelegation};
 use serde_bytes::ByteBuf;
 
-use crate::{BasicIdentity, TEEIdentity};
+use crate::{signed_delegation_from, BasicIdentity, TEEIdentity};
 
 #[derive(Clone)]
 pub struct TEEAgent {
@@ -100,7 +100,7 @@ impl TEEAgent {
             (user_key, res?)
         };
 
-        id.update_with_delegation(user_key, session_key, delegation);
+        id.update_with_delegation(user_key, session_key, signed_delegation_from(delegation));
         Ok(self.with_new_identity(id))
     }
 
@@ -131,18 +131,7 @@ impl TEEAgent {
         let res = self
             .get_delegation(&res.seed, &pubkey, res.expiration)
             .await?;
-        id.update_with_delegation(
-            user_key,
-            session_key,
-            SignedDelegation {
-                delegation: Delegation {
-                    pubkey: res.delegation.pubkey,
-                    expiration: res.delegation.expiration,
-                    targets: res.delegation.targets,
-                },
-                signature: res.signature,
-            },
-        );
+        id.update_with_delegation(user_key, session_key, signed_delegation_from(res));
 
         Ok(self.with_new_identity(id))
     }
