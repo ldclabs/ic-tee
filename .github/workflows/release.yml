@@ -19,7 +19,7 @@ jobs:
     - name: Build canisters
       run: |
         rustup default stable-x86_64-unknown-linux-musl
-        rustup update --no-self-update stable -q
+        rustup update --no-self-update stable
         rustup target add wasm32-unknown-unknown
         rustup show
         cargo install ic-wasm
