@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       build_tag:
-        description: 'binary tag'
+        description: 'Release tag'
         required: true
         type: string
   push:
@@ -12,14 +12,16 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    container: clux/muslrust:stable
     steps:
     - uses: actions/checkout@v4
     - uses: Swatinem/rust-cache@v2
     - name: Build canisters
       run: |
+        rustup update --no-self-update stable
         rustup target add wasm32-unknown-unknown
         cargo install ic-wasm
-        mkdir out
+        mkdir -p out
         cargo build --target wasm32-unknown-unknown --release --locked -p ic_tee_identity
         for CAN in ic_tee_identity
         do
@@ -36,27 +38,6 @@ jobs:
         ls -lah out
     - name: Build linux binary
       run: |
-        sudo apt-get update
-        sudo apt-get install -y musl-tools libssl-dev pkg-config
-        rustup target add x86_64-unknown-linux-musl
-        # Install musl-gcc
-        sudo apt-get install -y musl-dev
-        # Install musl openssl
-        wget https://github.com/openssl/openssl/archive/refs/tags/openssl-3.0.16.tar.gz
-        tar -xzf openssl-3.0.16.tar.gz
-        cd openssl-openssl-3.0.16
-        CC="musl-gcc -fPIE -pie" ./Configure --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64 no-shared
-        make -j$(nproc)
-        sudo make install
-        cd ..
-        # Set environment variables for cross-compilation
-        export OPENSSL_DIR=/usr/local/musl
-        export OPENSSL_STATIC=1
-        export PKG_CONFIG_ALLOW_CROSS=1
-        export PKG_CONFIG_SYSROOT_DIR=/usr/local/musl
-        export PKG_CONFIG_PATH=/usr/local/musl/lib/pkgconfig
-        export CC=musl-gcc
-        
         for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_daemon ic_tee_cli
         do
           cargo build --release --locked -p $PACK --target x86_64-unknown-linux-musl
