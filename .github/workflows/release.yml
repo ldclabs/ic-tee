@@ -39,11 +39,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y musl-tools libssl-dev pkg-config
         rustup target add x86_64-unknown-linux-musl
+        # Install musl-gcc
+        sudo apt-get install -y musl-dev
         # Install musl openssl
-        wget https://github.com/openssl/openssl/archive/refs/tags/openssl-3.4.1.tar.gz
-        tar -xzf openssl-3.4.1.tar.gz
-        cd openssl-openssl-3.4.1
-        ./Configure --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64 no-shared
+        wget https://github.com/openssl/openssl/archive/refs/tags/openssl-3.0.16.tar.gz
+        tar -xzf openssl-3.0.16.tar.gz
+        cd openssl-openssl-3.0.16
+        CC="musl-gcc -fPIE -pie" ./Configure --prefix=/usr/local/musl --openssldir=/usr/local/musl/ssl linux-x86_64 no-shared
         make -j$(nproc)
         sudo make install
         cd ..
@@ -53,7 +55,9 @@ jobs:
         export PKG_CONFIG_ALLOW_CROSS=1
         export PKG_CONFIG_SYSROOT_DIR=/usr/local/musl
         export PKG_CONFIG_PATH=/usr/local/musl/lib/pkgconfig
-        for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_daemon
+        export CC=musl-gcc
+        
+        for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_daemon ic_tee_cli
         do
           cargo build --release --locked -p $PACK --target x86_64-unknown-linux-musl
           cp "target/x86_64-unknown-linux-musl/release/$PACK" "out/"
