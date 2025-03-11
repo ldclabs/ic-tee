@@ -18,8 +18,10 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Build canisters
       run: |
-        rustup update --no-self-update stable
+        rustup default stable-x86_64-unknown-linux-musl
+        rustup update --no-self-update stable -q
         rustup target add wasm32-unknown-unknown
+        rustup show
         cargo install ic-wasm
         mkdir -p out
         cargo build --target wasm32-unknown-unknown --release --locked -p ic_tee_identity
@@ -38,6 +40,7 @@ jobs:
         ls -lah out
     - name: Build linux binary
       run: |
+        export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-s"
         for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_daemon ic_tee_cli
         do
           cargo build --release --locked -p $PACK --target x86_64-unknown-linux-musl
