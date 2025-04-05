@@ -31,6 +31,7 @@ impl TEEAgent {
             .with_url(host)
             .with_verify_query_signatures(false)
             .with_identity(identity.clone())
+            .with_background_dynamic_routing()
             .build()
             .map_err(format_error)?;
         if host.starts_with("http://") {
@@ -129,7 +130,7 @@ impl TEEAgent {
 
         let user_key = res.user_key.to_vec();
         let res = self
-            .get_delegation(&res.seed, &pubkey, res.expiration)
+            .get_delegation(&res.seed.0.into(), &pubkey, res.expiration)
             .await?;
         id.update_with_delegation(user_key, session_key, signed_delegation_from(res));
 

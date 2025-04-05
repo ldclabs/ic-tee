@@ -101,10 +101,10 @@ fn get_delegation(
     let signature = store::state::get_signature(seed.as_slice(), delegation_hash.as_slice())?;
     Ok(SignedDelegation {
         delegation: Delegation {
-            pubkey: session_key,
+            pubkey: session_key.into_vec().into(),
             expiration,
             targets: None,
         },
-        signature: ByteBuf::from(signature),
+        signature: signature.into(),
     })
 }

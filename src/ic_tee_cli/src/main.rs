@@ -31,7 +31,7 @@ use pkcs8::{
     },
     AlgorithmIdentifierRef, PrivateKeyInfo,
 };
-use rand::{thread_rng, RngCore};
+use rand::RngCore;
 use serde_bytes::ByteBuf;
 use std::{path::Path, sync::Arc, vec};
 
@@ -162,7 +162,8 @@ async fn main() -> Result<()> {
 
     match &cli.command {
         Some(Commands::IdentityNew { path }) => {
-            let signing_key = SigningKey::new(thread_rng());
+            let secret: [u8; 32] = rand_bytes();
+            let signing_key = SigningKey::from(secret);
             let private_key = OctetString::new(signing_key.as_bytes())?;
             let private_key = private_key.to_der()?;
             let id = BasicIdentity::from_signing_key(signing_key);
@@ -210,7 +211,7 @@ async fn main() -> Result<()> {
         }
 
         Some(Commands::RandBytes { len, format }) => {
-            let mut rng = thread_rng();
+            let mut rng = rand::rng();
             let mut bytes = vec![0u8; (*len).min(1024)];
             rng.fill_bytes(&mut bytes);
             match format.as_str() {

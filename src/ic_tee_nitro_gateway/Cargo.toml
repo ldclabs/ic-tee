@@ -28,9 +28,6 @@ ic_cose_types = { workspace = true }
 ic-agent = { workspace = true }
 ed25519-consensus = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
-lazy_static = { workspace = true }
-ic-secp256k1 = { workspace = true }
-ic-ed25519 = { workspace = true }
 ic_auth_verifier = { workspace = true, features = ["full"] }
 ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.3" }
 ic_tee_agent = { path = "../ic_tee_agent", version = "0.3" }

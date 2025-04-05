@@ -4,7 +4,7 @@ use ic_agent::{
     identity::{DelegatedIdentity, Delegation, SignedDelegation},
     {agent::EnvelopeContent, Signature},
 };
-use rand::thread_rng;
+use ic_cose::rand_bytes;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub use ic_agent::identity::{AnonymousIdentity, BasicIdentity, Identity};
@@ -65,7 +65,8 @@ impl TEEIdentity {
     }
 
     pub fn new_session() -> (SigningKey, Vec<u8>) {
-        let signing_key = SigningKey::new(thread_rng());
+        let secret: [u8; 32] = rand_bytes();
+        let signing_key = SigningKey::from(secret);
         let basic = BasicIdentity::from_signing_key(signing_key.clone());
         (signing_key, basic.public_key().unwrap())
     }
@@ -221,10 +222,10 @@ pub fn identity_from(secret: [u8; 32]) -> BasicIdentity {
 pub fn signed_delegation_from(src: ic_auth_types::SignedDelegation) -> SignedDelegation {
     SignedDelegation {
         delegation: Delegation {
-            pubkey: src.delegation.pubkey.into_vec(),
+            pubkey: src.delegation.pubkey.0,
             expiration: src.delegation.expiration,
             targets: src.delegation.targets,
         },
-        signature: src.signature.into_vec(),
+        signature: src.signature.0,
     }
 }
