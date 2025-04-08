@@ -1894,7 +1894,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_agent"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "axum-core",
  "bytes",
@@ -1927,7 +1927,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cli"
-version = "0.3.2"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
