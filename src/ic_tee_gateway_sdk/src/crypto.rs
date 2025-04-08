@@ -11,6 +11,8 @@ use ic_cose_types::{
 };
 use serde_bytes::{ByteArray, ByteBuf};
 
+pub use ic_cose_types::cose::{keccak256, sha256, sha3_256};
+
 /// Derives a 256-bit AES-GCM key from a root secret and derivation path.
 ///
 /// The derivation path is hashed using HMAC-SHA256 with "A256GCM" as the context string
@@ -196,6 +198,30 @@ pub fn secp256k1_sign_message_ecdsa(
     sig.into()
 }
 
+/// Signs a digest using ECDSA (Elliptic Curve Digital Signature Algorithm) for secp256k1.
+///
+/// Derives a signing key from:
+/// - Root secret (seed)
+/// - Derivation path (for hierarchical key derivation)
+///
+/// Returns a 64-byte ECDSA signature that can be verified with the corresponding public key.
+pub fn secp256k1_sign_digest_ecdsa(
+    root_secret: &[u8],
+    derivation_path: Vec<Vec<u8>>,
+    digest: &[u8],
+) -> ByteArray<64> {
+    let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
+    let path = ic_secp256k1::DerivationPath::new(
+        derivation_path
+            .into_iter()
+            .map(ic_secp256k1::DerivationIndex)
+            .collect(),
+    );
+    let (sk, _) = sk.derive_subkey(&path);
+    let sig = sk.sign_digest_with_ecdsa(digest);
+    sig.into()
+}
+
 /// Derives a secp256k1 public key and chain code from a root secret and derivation path.
 ///
 /// # Arguments
@@ -311,6 +337,10 @@ mod test {
         assert!(
             secp256k1_verify_ecdsa(pk.as_slice(), sha256(msg).as_slice(), sig.as_slice()).is_ok()
         );
+
+        let digest = keccak256(msg);
+        let sig = secp256k1_sign_digest_ecdsa(&ROOT_SECRET, vec![], digest.as_slice());
+        assert!(secp256k1_verify_ecdsa(pk.as_slice(), digest.as_slice(), sig.as_slice()).is_ok());
 
         let sig = secp256k1_sign_message_ecdsa(&ROOT_SECRET, vec![b"v1".to_vec()], msg);
         let (pk, code) = derive_secp256k1_public_key(&pk, &code, vec![b"v1".to_vec()]).unwrap();
