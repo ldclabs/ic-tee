@@ -291,6 +291,29 @@ impl Client {
         Ok(res.into_array())
     }
 
+    /// Signs a message hash using Secp256k1 ECDSA signature
+    ///
+    /// # Arguments
+    /// * `derivation_path` - Additional path components for key derivation
+    /// * `message_hash` - Message hash to be signed
+    ///
+    /// # Returns
+    /// Result containing the 64-byte signature or an error
+    pub async fn secp256k1_sign_digest_ecdsa(
+        &self,
+        derivation_path: &[&[u8]],
+        message_hash: &[u8],
+    ) -> Result<[u8; 64], BoxError> {
+        let res: ByteArray<64> = http_rpc(
+            &self.http,
+            &self.endpoint_keys,
+            "secp256k1_sign_digest_ecdsa",
+            &(derivation_path, message_hash),
+        )
+        .await?;
+        Ok(res.into_array())
+    }
+
     /// Verifies a Secp256k1 ECDSA signature
     ///
     /// # Arguments
@@ -303,11 +326,11 @@ impl Client {
     pub async fn secp256k1_verify_ecdsa(
         &self,
         derivation_path: &[&[u8]],
-        message: &[u8],
+        message_hash: &[u8],
         signature: &[u8],
     ) -> Result<(), BoxError> {
         let pk = self.secp256k1_public_key(derivation_path).await?;
-        secp256k1_verify_ecdsa(&pk, message, signature).map_err(|e| e.into())
+        secp256k1_verify_ecdsa(&pk, message_hash, signature).map_err(|e| e.into())
     }
 
     /// Gets the compressed SEC1-encoded public key for Secp256k1

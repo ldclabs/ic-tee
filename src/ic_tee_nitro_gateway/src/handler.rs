@@ -146,6 +146,18 @@ impl AppState {
         )
     }
 
+    pub fn secp256k1_sign_digest_ecdsa(
+        &self,
+        derivation_path: Vec<ByteBuf>,
+        msg_hash: &[u8],
+    ) -> ByteArray<64> {
+        crypto::secp256k1_sign_digest_ecdsa(
+            &self.root_secret,
+            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
+            msg_hash,
+        )
+    }
+
     pub fn secp256k1_public_key(
         &self,
         derivation_path: Vec<ByteBuf>,
@@ -523,6 +535,12 @@ fn handle_keys_request(req: &RPCRequest, app: &AppState) -> RPCResponse {
             let params: (Vec<ByteBuf>, ByteBuf) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
             let res = app.secp256k1_sign_message_ecdsa(params.0, &params.1);
+            Ok(to_cbor_bytes(&res).into())
+        }
+        "secp256k1_sign_digest_ecdsa" => {
+            let params: (Vec<ByteBuf>, ByteBuf) =
+                from_reader(req.params.as_slice()).map_err(format_error)?;
+            let res = app.secp256k1_sign_digest_ecdsa(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "secp256k1_public_key" => {

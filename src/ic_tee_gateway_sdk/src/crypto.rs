@@ -175,6 +175,7 @@ pub fn secp256k1_sign_message_bip340(
 }
 
 /// Signs a message using ECDSA (Elliptic Curve Digital Signature Algorithm) for secp256k1.
+/// The message will be hashed with SHA-256
 ///
 /// Derives a signing key from:
 /// - Root secret (seed)
@@ -208,7 +209,7 @@ pub fn secp256k1_sign_message_ecdsa(
 pub fn secp256k1_sign_digest_ecdsa(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
-    digest: &[u8],
+    message_hash: &[u8],
 ) -> ByteArray<64> {
     let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
     let path = ic_secp256k1::DerivationPath::new(
@@ -218,7 +219,7 @@ pub fn secp256k1_sign_digest_ecdsa(
             .collect(),
     );
     let (sk, _) = sk.derive_subkey(&path);
-    let sig = sk.sign_digest_with_ecdsa(digest);
+    let sig = sk.sign_digest_with_ecdsa(message_hash);
     sig.into()
 }
 
