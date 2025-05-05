@@ -173,7 +173,9 @@ impl AppState {
 /// public_server: GET /.well-known/information
 pub async fn get_information(State(app): State<AppState>, req: Request) -> impl IntoResponse {
     let mut info = app.info.as_ref().clone();
-    info.caller = if let Some(se) = SignedEnvelope::try_from(req.headers()) {
+    info.caller = if let Some(se) = SignedEnvelope::from_authorization(req.headers())
+        .or_else(|| SignedEnvelope::from_headers(req.headers()))
+    {
         match se.verify(unix_ms(), Some(app.info.id), None) {
             Ok(_) => se.sender(),
             Err(_) => ANONYMOUS_PRINCIPAL,
@@ -209,7 +211,9 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
 /// local_server: GET /attestation
 /// public_server: GET /.well-known/attestation
 pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl IntoResponse {
-    let caller = if let Some(se) = SignedEnvelope::try_from(req.headers()) {
+    let caller = if let Some(se) = SignedEnvelope::from_authorization(req.headers())
+        .or_else(|| SignedEnvelope::from_headers(req.headers()))
+    {
         match se.verify(unix_ms(), Some(app.info.id), None) {
             Ok(_) => se.sender(),
             Err(_) => ANONYMOUS_PRINCIPAL,
@@ -405,7 +409,9 @@ pub async fn proxy(
         ));
     };
 
-    let caller = if let Some(se) = SignedEnvelope::try_from(req.headers()) {
+    let caller = if let Some(se) = SignedEnvelope::from_authorization(req.headers())
+        .or_else(|| SignedEnvelope::from_headers(req.headers()))
+    {
         match se.verify(unix_ms(), Some(app.info.id), None) {
             Ok(_) => se.sender(),
             Err(err) => {

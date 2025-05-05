@@ -10,7 +10,7 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.3" }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.4" }
 http = { workspace = true }
 candid = { workspace = true }
 ciborium = { workspace = true }

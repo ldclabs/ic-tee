@@ -29,14 +29,22 @@ impl TEEAgent {
         let identity = TEEIdentity::new();
         let agent = Agent::builder()
             .with_url(host)
-            .with_verify_query_signatures(false)
             .with_identity(identity.clone())
-            .with_background_dynamic_routing()
-            .build()
-            .map_err(format_error)?;
+            .with_verify_query_signatures(false);
+
+        let agent = if host.starts_with("https://") {
+            agent
+                .with_background_dynamic_routing()
+                .build()
+                .map_err(format_error)?
+        } else {
+            agent.build().map_err(format_error)?
+        };
+
         if host.starts_with("http://") {
             agent.fetch_root_key().await.map_err(format_error)?;
         }
+
         Ok(Self {
             identity_canister,
             cose_canister,

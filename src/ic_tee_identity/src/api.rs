@@ -19,7 +19,7 @@ fn get_state() -> Result<store::State, String> {
 
 #[ic_cdk::query]
 fn whoami() -> Principal {
-    ic_cdk::caller()
+    ic_cdk::api::msg_caller()
 }
 
 #[ic_cdk::update]
@@ -57,10 +57,10 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
     let user_key = match req.params.as_ref() {
         Some(SignInParams { id_scope }) => {
             if id_scope == "image" {
-                canister_user_key(ic_cdk::id(), &kind, pcr0.as_slice(), None)
+                canister_user_key(ic_cdk::api::canister_self(), &kind, pcr0.as_slice(), None)
             } else if id_scope == "instance" {
                 canister_user_key(
-                    ic_cdk::id(),
+                    ic_cdk::api::canister_self(),
                     &kind,
                     pcr0.as_slice(),
                     Some(attestation.module_id.as_bytes()),

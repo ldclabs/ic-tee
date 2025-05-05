@@ -36,7 +36,7 @@ use ic_cose_types::{
 };
 use ic_tee_cdk::TEEAppInformation;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_bytes::ByteArray;
+use serde_bytes::{ByteArray, ByteBuf, Bytes};
 use std::{collections::HashMap, time::Duration};
 use tokio_util::sync::CancellationToken;
 
@@ -152,12 +152,15 @@ impl Client {
     ///
     /// # Returns
     /// Result containing the derived 256-bit key or an error
-    pub async fn a256gcm_key(&self, derivation_path: &[&[u8]]) -> Result<[u8; 32], BoxError> {
+    pub async fn a256gcm_key(&self, derivation_path: Vec<Vec<u8>>) -> Result<[u8; 32], BoxError> {
         let res: ByteArray<32> = http_rpc(
             &self.http,
             &self.endpoint_keys,
             "a256gcm_key",
-            &(derivation_path,),
+            &(derivation_path
+                .into_iter()
+                .map(ByteBuf::from)
+                .collect::<Vec<_>>(),),
         )
         .await?;
         Ok(res.into_array())
@@ -173,14 +176,20 @@ impl Client {
     /// Result containing the 64-byte signature or an error
     pub async fn ed25519_sign_message(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
         message: &[u8],
     ) -> Result<[u8; 64], BoxError> {
         let res: ByteArray<64> = http_rpc(
             &self.http,
             &self.endpoint_keys,
             "ed25519_sign_message",
-            &(derivation_path, message),
+            &(
+                derivation_path
+                    .into_iter()
+                    .map(ByteBuf::from)
+                    .collect::<Vec<_>>(),
+                Bytes::new(message),
+            ),
         )
         .await?;
         Ok(res.into_array())
@@ -197,7 +206,7 @@ impl Client {
     /// Result indicating success or failure of verification
     pub async fn ed25519_verify(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), BoxError> {
@@ -214,13 +223,16 @@ impl Client {
     /// Result containing the 32-byte public key or an error
     pub async fn ed25519_public_key(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
     ) -> Result<[u8; 32], BoxError> {
         let res: (ByteArray<32>, ByteArray<32>) = http_rpc(
             &self.http,
             &self.endpoint_keys,
             "ed25519_public_key",
-            &(derivation_path,),
+            &(derivation_path
+                .into_iter()
+                .map(ByteBuf::from)
+                .collect::<Vec<_>>(),),
         )
         .await?;
         Ok(res.0.into_array())
@@ -236,14 +248,20 @@ impl Client {
     /// Result containing the 64-byte signature or an error
     pub async fn secp256k1_sign_message_bip340(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
         message: &[u8],
     ) -> Result<[u8; 64], BoxError> {
         let res: ByteArray<64> = http_rpc(
             &self.http,
             &self.endpoint_keys,
             "secp256k1_sign_message_bip340",
-            &(derivation_path, message),
+            &(
+                derivation_path
+                    .into_iter()
+                    .map(ByteBuf::from)
+                    .collect::<Vec<_>>(),
+                Bytes::new(message),
+            ),
         )
         .await?;
         Ok(res.into_array())
@@ -260,7 +278,7 @@ impl Client {
     /// Result indicating success or failure of verification
     pub async fn secp256k1_verify_bip340(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), BoxError> {
@@ -278,14 +296,20 @@ impl Client {
     /// Result containing the 64-byte signature or an error
     pub async fn secp256k1_sign_message_ecdsa(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
         message: &[u8],
     ) -> Result<[u8; 64], BoxError> {
         let res: ByteArray<64> = http_rpc(
             &self.http,
             &self.endpoint_keys,
             "secp256k1_sign_message_ecdsa",
-            &(derivation_path, message),
+            &(
+                derivation_path
+                    .into_iter()
+                    .map(ByteBuf::from)
+                    .collect::<Vec<_>>(),
+                Bytes::new(message),
+            ),
         )
         .await?;
         Ok(res.into_array())
@@ -301,14 +325,20 @@ impl Client {
     /// Result containing the 64-byte signature or an error
     pub async fn secp256k1_sign_digest_ecdsa(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
         message_hash: &[u8],
     ) -> Result<[u8; 64], BoxError> {
         let res: ByteArray<64> = http_rpc(
             &self.http,
             &self.endpoint_keys,
             "secp256k1_sign_digest_ecdsa",
-            &(derivation_path, message_hash),
+            &(
+                derivation_path
+                    .into_iter()
+                    .map(ByteBuf::from)
+                    .collect::<Vec<_>>(),
+                Bytes::new(message_hash),
+            ),
         )
         .await?;
         Ok(res.into_array())
@@ -325,7 +355,7 @@ impl Client {
     /// Result indicating success or failure of verification
     pub async fn secp256k1_verify_ecdsa(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
         message_hash: &[u8],
         signature: &[u8],
     ) -> Result<(), BoxError> {
@@ -342,13 +372,16 @@ impl Client {
     /// Result containing the 33-byte public key or an error
     pub async fn secp256k1_public_key(
         &self,
-        derivation_path: &[&[u8]],
+        derivation_path: Vec<Vec<u8>>,
     ) -> Result<[u8; 33], BoxError> {
         let res: (ByteArray<33>, ByteArray<32>) = http_rpc(
             &self.http,
             &self.endpoint_keys,
             "secp256k1_public_key",
-            &(derivation_path,),
+            &(derivation_path
+                .into_iter()
+                .map(ByteBuf::from)
+                .collect::<Vec<_>>(),),
         )
         .await?;
         Ok(res.0.into_array())
@@ -402,7 +435,7 @@ impl Client {
             &self.http,
             &self.endpoint_identity,
             "sign_http",
-            &(message_digest,),
+            &(Bytes::new(&message_digest),),
         )
         .await?;
         let mut headers = headers.unwrap_or_default();
@@ -437,8 +470,13 @@ impl Client {
         };
         let body = to_cbor_bytes(&req);
         let digest: [u8; 32] = sha3_256(&body);
-        let res: HashMap<String, String> =
-            http_rpc(&self.http, &self.endpoint_identity, "sign_http", &(digest,)).await?;
+        let res: HashMap<String, String> = http_rpc(
+            &self.http,
+            &self.endpoint_identity,
+            "sign_http",
+            &(Bytes::new(&digest),),
+        )
+        .await?;
         let mut headers = http::HeaderMap::new();
         res.into_iter().for_each(|(k, v)| {
             headers.insert(

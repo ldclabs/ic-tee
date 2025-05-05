@@ -20,7 +20,7 @@ strip = true
 opt-level = 's'
 
 [workspace.package]
-version = "0.3.5"
+version = "0.4.0"
 edition = "2021"
 repository = "https://github.com/ldclabs/ic-tee"
 keywords = ["tee", "canister", "icp", "nitro"]
@@ -53,15 +53,15 @@ serde_json = "1"
 serde_bytes = "0.11"
 sha2 = "0.10"
 sha3 = "0.10"
-ic-cdk = "0.17"
+ic-cdk = "0.18"
 ic-stable-structures = "0.6"
 ic-canister-sig-creation = "1.1"
 ic-certification = "3.0"
 ic-agent = "0.40"
-ic_cose_types = "0.7"
-ic_cose = "0.7"
+ic_cose_types = "0.8"
+ic_cose = "0.8"
 coset = "0.3"
-x509-parser = { version = "0.16" }
+x509-parser = { version = "0.17" }
 ed25519-consensus = "2.1"
 rand = "0.9"
 tokio = { version = "1", features = ["full"] }
@@ -86,8 +86,8 @@ libc = "0.2"
 thiserror = "2"
 ic-secp256k1 = { version = "0.1" }
 ic-ed25519 = { version = "0.2" }
-ic_auth_types = { version = "0.2" }
-ic_auth_verifier = { version = "0.2" }
+ic_auth_types = { version = "0.3" }
+ic_auth_verifier = { version = "0.3" }
 
 [workspace.metadata.cargo-shear]
 ignored = ["ic-dummy-getrandom-for-wasm"]
