@@ -12,6 +12,7 @@ license.workspace = true
 [dependencies]
 axum = { workspace = true }
 axum-server = { workspace = true }
+arc-swap = { workspace = true }
 clap = { workspace = true }
 const-hex = { workspace = true }
 ciborium = { workspace = true }

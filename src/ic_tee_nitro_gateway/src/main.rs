@@ -213,8 +213,9 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         None
     };
 
+    let tee_agent = Arc::new(tee_agent);
     let principal = tee_agent.get_principal();
-    log::info!(target: LOG_TARGET, "start to get my_master_secret");
+    log::info!(target: LOG_TARGET, "start to get master_secret");
     // should replace with vetkey in the future
     let admin_master_secret = tee_agent
         .get_cose_encrypted_key(&SettingPath {
@@ -236,7 +237,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         .await?;
     log::info!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
-            "get my_master_secret");
+            "get master_secret");
 
     log::info!(target: LOG_TARGET, "start to get_or_set_root_secret");
     let root_secret =
@@ -266,60 +267,51 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let info = Arc::new(info);
     let global_cancel_token = CancellationToken::new();
     let shutdown_future = shutdown_signal(global_cancel_token.clone());
+    let server_cancel_token = global_cancel_token.child_token();
+
+    // local server
+    let local_app_state = handler::AppState::new(
+        info.clone(),
+        tee_agent.clone(),
+        root_secret,
+        None,
+        namespace.clone(),
+        cli.app_basic_token.clone(),
+    );
+    let local_server =
+        start_local_server(local_app_state.clone(), start, server_cancel_token.clone());
+
+    // public server
+    let public_app_state = handler::AppState::new(
+        info.clone(),
+        tee_agent.clone(),
+        [0u8; 48],
+        cli.upstream_port,
+        String::new(),
+        None,
+    );
+
+    let tls_config = if is_dev {
+        None
+    } else {
+        log::info!(target: LOG_TARGET, "start to get_tls");
+        let tls = get_tls(&tee_agent, &start, namespace.clone(), &admin_master_secret).await?;
+        let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec()).await?;
+        Some(config)
+    };
+
+    let public_server = start_public_server(
+        public_app_state.clone(),
+        start,
+        server_cancel_token.clone(),
+        tls_config,
+    );
 
     // 24 hours - 30 minutes
     let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 30;
-    let task = async {
-        let mut prev_server_cancel_token: Option<CancellationToken> = None;
+    // let refresh_identity_ms = 1000 * 60; // for test
+    let refresh_identity = async {
         loop {
-            let server_cancel_token = global_cancel_token.child_token();
-            let local_server = start_local_server(
-                handler::AppState::new(
-                    info.clone(),
-                    Arc::new(tee_agent.clone()),
-                    root_secret,
-                    None,
-                    namespace.clone(),
-                    cli.app_basic_token.clone(),
-                ),
-                start,
-                server_cancel_token.clone(),
-            );
-
-            let tls_config = if is_dev {
-                None
-            } else {
-                log::info!(target: LOG_TARGET, "start to get_tls");
-                let tls =
-                    get_tls(&tee_agent, &start, namespace.clone(), &admin_master_secret).await?;
-                let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec()).await?;
-                Some(config)
-            };
-
-            let public_server = start_public_server(
-                handler::AppState::new(
-                    info.clone(),
-                    Arc::new(tee_agent.clone()),
-                    [0u8; 48],
-                    cli.upstream_port,
-                    String::new(),
-                    None,
-                ),
-                start,
-                server_cancel_token.clone(),
-                tls_config,
-            );
-
-            tokio::spawn(async move {
-                // TODO: handle errors
-                let _ = tokio::join!(local_server, public_server);
-            });
-
-            if let Some(cancel_token) = prev_server_cancel_token {
-                cancel_token.cancel();
-            }
-            prev_server_cancel_token = Some(server_cancel_token);
-
             tokio::select! {
                 _ = global_cancel_token.cancelled() => {
                     break;
@@ -327,36 +319,61 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
                 _ = tokio::time::sleep(Duration::from_millis(refresh_identity_ms)) => {}
             };
 
-            let session_key = TEEIdentity::new_session();
-            let public_key = session_key.1.clone();
-            // ignore error
-            match upgrade_identity {
-                Some(ref name) => {
-                    // remember to `dfx canister call ic_cose_canister namespace_add_delegator`
-                    tee_agent = tee_agent
-                        .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
-                        .await?;
-                }
-                None => {
-                    tee_agent = tee_agent
-                        .sign_in_with_attestation(session_key, || {
-                            match sign_attestation(AttestationRequest {
-                                public_key: Some(public_key.into()),
-                                user_data: Some(user_sign_in_req.clone().into()),
-                                nonce: None,
-                            }) {
-                                Ok(doc) => Ok((TEE_KIND.to_string(), doc.into())),
-                                Err(err) => Err(err.to_string()),
-                            }
-                        })
-                        .await?;
+            loop {
+                let tee_agent = local_app_state.tee_agent();
+                let session_key = TEEIdentity::new_session();
+                let public_key = session_key.1.clone();
+                let new_tee_agent = match upgrade_identity {
+                    Some(ref name) => {
+                        // remember to `dfx canister call ic_cose_canister namespace_add_delegator`
+                        tee_agent
+                            .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
+                            .await
+                    }
+                    None => {
+                        tee_agent
+                            .sign_in_with_attestation(session_key, || {
+                                match sign_attestation(AttestationRequest {
+                                    public_key: Some(public_key.into()),
+                                    user_data: Some(user_sign_in_req.clone().into()),
+                                    nonce: None,
+                                }) {
+                                    Ok(doc) => Ok((TEE_KIND.to_string(), doc.into())),
+                                    Err(err) => Err(err.to_string()),
+                                }
+                            })
+                            .await
+                    }
+                };
+
+                match new_tee_agent {
+                    Ok(new_tee_agent) => {
+                        let tee_agent = Arc::new(new_tee_agent);
+                        local_app_state.update_tee_agent(tee_agent.clone());
+                        public_app_state.update_tee_agent(tee_agent.clone());
+
+                        log::info!(target: LOG_TARGET,
+                            elapsed = start.elapsed().as_millis() as u64;
+                            "refresh identity, principal: {:?}", tee_agent.get_principal().to_text());
+                        break;
+                    }
+                    Err(err) => {
+                        log::error!(target: LOG_TARGET, "refresh identity failed: {:?}", err);
+                        // retry after 10 seconds
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                    }
                 }
             }
         }
         Result::<(), BoxError>::Ok(())
     };
 
-    match tokio::try_join!(task, shutdown_future) {
+    match tokio::try_join!(
+        local_server,
+        public_server,
+        refresh_identity,
+        shutdown_future,
+    ) {
         Ok(_) => Ok(()),
         Err(err) => {
             log::error!(target: LOG_TARGET, "server error: {:?}", err);

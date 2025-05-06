@@ -1,3 +1,4 @@
+use arc_swap::ArcSwap;
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -41,7 +42,7 @@ type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 pub struct AppState {
     info: Arc<TEEAppInformation>,
     http_client: Arc<Client>,
-    tee_agent: Arc<TEEAgent>,
+    tee_agent: Arc<ArcSwap<TEEAgent>>,
     root_secret: [u8; 48],
     upstream_port: Option<u16>,
     cose_namespace: String,
@@ -65,12 +66,20 @@ impl AppState {
         Self {
             info,
             http_client,
-            tee_agent,
+            tee_agent: Arc::new(ArcSwap::from(tee_agent)),
             root_secret,
             upstream_port,
             cose_namespace,
             app_basic_token,
         }
+    }
+
+    pub fn tee_agent(&self) -> Arc<TEEAgent> {
+        self.tee_agent.load().clone()
+    }
+
+    pub fn update_tee_agent(&self, tee_agent: Arc<TEEAgent>) {
+        self.tee_agent.store(tee_agent);
     }
 
     pub fn valid_session(&self, headers: &HeaderMap) -> bool {
@@ -319,6 +328,7 @@ pub async fn local_query_canister(
             }
             let res = app
                 .tee_agent
+                .load()
                 .query_call_raw(&req.canister, &req.method, req.params.to_vec())
                 .await;
             Content::CBOR(res, None).into_response()
@@ -344,6 +354,7 @@ pub async fn local_update_canister(
             }
             let res = app
                 .tee_agent
+                .load()
                 .update_call_raw(&req.canister, &req.method, req.params.to_vec())
                 .await;
             Content::CBOR(res, None).into_response()
@@ -490,8 +501,10 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
         "sign_http" => {
             let (digest,): (ByteArray<32>,) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
-            let se =
-                SignedEnvelope::sign_digest(&app.tee_agent.identity, digest.into_array().into())?;
+            let se = SignedEnvelope::sign_digest(
+                &app.tee_agent.load().identity,
+                digest.into_array().into(),
+            )?;
             let mut headers = HeaderMap::new();
             se.to_headers(&mut headers)?;
             let headers: HashMap<&str, &str> = headers

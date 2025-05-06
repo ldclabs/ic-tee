@@ -15,6 +15,7 @@ The complete Candid API definition can be found in the [ic_tee_identity.did](htt
 
 Deploy to local network:
 ```bash
+# dfx canister create --specified-id e7tgb-6aaaa-aaaap-akqfa-cai ic_tee_identity
 dfx deploy ic_tee_identity
 
 # or with arguments
