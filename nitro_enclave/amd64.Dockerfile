@@ -14,7 +14,7 @@ RUN mv supervisord_0.7.3_Linux_64-bit/supervisord ./ \
     && chmod +x supervisord
 
 # dnsproxy to provide DNS services inside the enclave
-RUN wget -qO- https://github.com/AdguardTeam/dnsproxy/releases/download/v0.73.3/dnsproxy-linux-amd64-v0.73.3.tar.gz | tar xvz
+RUN wget -qO- https://github.com/AdguardTeam/dnsproxy/releases/download/v0.75.4/dnsproxy-linux-amd64-v0.73.3.tar.gz | tar xvz
 RUN mv linux-amd64/dnsproxy ./ \
     && rm -rf linux-amd64 \
     && chmod +x dnsproxy
