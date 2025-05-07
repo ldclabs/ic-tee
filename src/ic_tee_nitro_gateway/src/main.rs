@@ -46,8 +46,7 @@ static LOCAL_HTTP_ADDR: &str = "127.0.0.1:8080";
 static PUBLIC_HTTP_ADDR: &str = "127.0.0.1:8443";
 static LOG_TARGET: &str = "bootstrap";
 
-const PUBLIC_SERVER_GRACEFUL_DURATION: Duration = Duration::from_secs(3);
-const LOCAL_SERVER_SHUTDOWN_DURATION: Duration = Duration::from_secs(5);
+const PUBLIC_SERVER_GRACEFUL_DURATION: Duration = Duration::from_secs(10);
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -266,7 +265,6 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
 
     let info = Arc::new(info);
     let global_cancel_token = CancellationToken::new();
-    let shutdown_future = shutdown_signal(global_cancel_token.clone());
     let server_cancel_token = global_cancel_token.child_token();
 
     // local server
@@ -278,8 +276,11 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         namespace.clone(),
         cli.app_basic_token.clone(),
     );
-    let local_server =
-        start_local_server(local_app_state.clone(), start, server_cancel_token.clone());
+    let local_server = tokio::spawn(start_local_server(
+        local_app_state.clone(),
+        start,
+        server_cancel_token.clone(),
+    ));
 
     // public server
     let public_app_state = handler::AppState::new(
@@ -300,86 +301,39 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         Some(config)
     };
 
-    let public_server = start_public_server(
+    let public_server = tokio::spawn(start_public_server(
         public_app_state.clone(),
         start,
         server_cancel_token.clone(),
         tls_config,
+    ));
+
+    let refresh_identity_future = refresh_identity(
+        global_cancel_token.clone(),
+        local_app_state,
+        public_app_state,
+        session_expires_in_ms,
+        upgrade_identity,
+        namespace.clone(),
+        user_sign_in_req,
     );
 
-    // 24 hours - 30 minutes
-    let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 30;
-    // let refresh_identity_ms = 1000 * 60; // for test
-    let refresh_identity = async {
-        loop {
-            tokio::select! {
-                _ = global_cancel_token.cancelled() => {
-                    break;
-                }
-                _ = tokio::time::sleep(Duration::from_millis(refresh_identity_ms)) => {}
-            };
-
-            loop {
-                let tee_agent = local_app_state.tee_agent();
-                let session_key = TEEIdentity::new_session();
-                let public_key = session_key.1.clone();
-                let new_tee_agent = match upgrade_identity {
-                    Some(ref name) => {
-                        // remember to `dfx canister call ic_cose_canister namespace_add_delegator`
-                        tee_agent
-                            .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
-                            .await
-                    }
-                    None => {
-                        tee_agent
-                            .sign_in_with_attestation(session_key, || {
-                                match sign_attestation(AttestationRequest {
-                                    public_key: Some(public_key.into()),
-                                    user_data: Some(user_sign_in_req.clone().into()),
-                                    nonce: None,
-                                }) {
-                                    Ok(doc) => Ok((TEE_KIND.to_string(), doc.into())),
-                                    Err(err) => Err(err.to_string()),
-                                }
-                            })
-                            .await
-                    }
-                };
-
-                match new_tee_agent {
-                    Ok(new_tee_agent) => {
-                        let tee_agent = Arc::new(new_tee_agent);
-                        local_app_state.update_tee_agent(tee_agent.clone());
-                        public_app_state.update_tee_agent(tee_agent.clone());
-
-                        log::info!(target: LOG_TARGET,
-                            elapsed = start.elapsed().as_millis() as u64;
-                            "refresh identity, principal: {:?}", tee_agent.get_principal().to_text());
-                        break;
-                    }
-                    Err(err) => {
-                        log::error!(target: LOG_TARGET, "refresh identity failed: {:?}", err);
-                        // retry after 10 seconds
-                        tokio::time::sleep(Duration::from_secs(10)).await;
-                    }
-                }
+    let _ = tokio::join!(
+        async {
+            if let Err(err) = local_server.await {
+                log::error!(target: LOG_TARGET, "local server shutdown with error: {err:?}");
             }
-        }
-        Result::<(), BoxError>::Ok(())
-    };
+        },
+        async {
+            if let Err(err) = public_server.await {
+                log::error!(target: LOG_TARGET, "public server shutdown with error: {err:?}");
+            }
+        },
+        refresh_identity_future,
+        shutdown_signal(global_cancel_token),
+    );
 
-    match tokio::try_join!(
-        local_server,
-        public_server,
-        refresh_identity,
-        shutdown_future,
-    ) {
-        Ok(_) => Ok(()),
-        Err(err) => {
-            log::error!(target: LOG_TARGET, "server error: {:?}", err);
-            Err(err)
-        }
-    }
+    Ok(())
 }
 
 async fn start_local_server(
@@ -416,7 +370,6 @@ async fn start_local_server(
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             let _ = cancel_token.cancelled().await;
-            tokio::time::sleep(LOCAL_SERVER_SHUTDOWN_DURATION).await;
         })
         .await?;
     Ok(())
@@ -458,6 +411,7 @@ async fn start_public_server(
             async {
                 let _ = cancel_token.cancelled().await;
                 handle.graceful_shutdown(Some(PUBLIC_SERVER_GRACEFUL_DURATION));
+
                 Result::<(), BoxError>::Ok(())
             }
         );
@@ -474,14 +428,79 @@ async fn start_public_server(
         axum::serve(listener, app)
             .with_graceful_shutdown(async move {
                 let _ = cancel_token.cancelled().await;
-                tokio::time::sleep(PUBLIC_SERVER_GRACEFUL_DURATION).await;
             })
             .await?;
         Ok(())
     }
 }
 
-async fn shutdown_signal(cancel_token: CancellationToken) -> Result<(), BoxError> {
+async fn refresh_identity(
+    cancel_token: CancellationToken,
+    local_app_state: handler::AppState,
+    public_app_state: handler::AppState,
+    session_expires_in_ms: u64,
+    upgrade_identity: Option<String>,
+    namespace: String,
+    user_sign_in_req: Vec<u8>,
+) {
+    // 24 hours - 30 minutes
+    let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 30;
+    // let refresh_identity_ms = 1000 * 60; // for test
+    loop {
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                return;
+            }
+            _ = tokio::time::sleep(Duration::from_millis(refresh_identity_ms)) => {}
+        };
+
+        loop {
+            let tee_agent = local_app_state.tee_agent();
+            let session_key = TEEIdentity::new_session();
+            let public_key = session_key.1.clone();
+            let new_tee_agent = match upgrade_identity {
+                Some(ref name) => {
+                    // remember to `dfx canister call ic_cose_canister namespace_add_delegator`
+                    tee_agent
+                        .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
+                        .await
+                }
+                None => {
+                    tee_agent
+                        .sign_in_with_attestation(session_key, || {
+                            match sign_attestation(AttestationRequest {
+                                public_key: Some(public_key.into()),
+                                user_data: Some(user_sign_in_req.clone().into()),
+                                nonce: None,
+                            }) {
+                                Ok(doc) => Ok((TEE_KIND.to_string(), doc.into())),
+                                Err(err) => Err(err.to_string()),
+                            }
+                        })
+                        .await
+                }
+            };
+
+            match new_tee_agent {
+                Ok(new_tee_agent) => {
+                    let tee_agent = Arc::new(new_tee_agent);
+                    local_app_state.update_tee_agent(tee_agent.clone());
+                    public_app_state.update_tee_agent(tee_agent.clone());
+
+                    log::info!(target: LOG_TARGET, "refresh identity, principal: {:?}", tee_agent.get_principal().to_text());
+                    break;
+                }
+                Err(err) => {
+                    log::error!(target: LOG_TARGET, "refresh identity failed: {:?}", err);
+                    // retry after 10 seconds
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+            }
+        }
+    }
+}
+
+async fn shutdown_signal(cancel_token: CancellationToken) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -506,9 +525,6 @@ async fn shutdown_signal(cancel_token: CancellationToken) -> Result<(), BoxError
 
     log::warn!(target: LOG_TARGET, "received termination signal, starting graceful shutdown");
     cancel_token.cancel();
-    tokio::time::sleep(LOCAL_SERVER_SHUTDOWN_DURATION).await;
-
-    Ok(())
 }
 
 async fn get_or_set_root_secret(

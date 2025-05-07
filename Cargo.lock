@@ -379,9 +379,9 @@ dependencies = [
 
 [[package]]
 name = "backtrace"
-version = "0.3.74"
+version = "0.3.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d82cb332cdfaed17ae235a638438ac4d4839913cc2af585c3c6746e8f8bee1a"
+checksum = "6806a6321ec58106fea15becdad98371e28d92ccbc7c8f1b3b6dd724fe8f1002"
 dependencies = [
  "addr2line",
  "cfg-if",
@@ -1503,7 +1503,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -1953,7 +1953,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_agent"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "axum-core",
  "bytes",
@@ -1973,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cdk"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "candid",
  "ciborium",
@@ -1986,7 +1986,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2009,7 +2009,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_daemon"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_gateway_sdk"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "candid",
  "ciborium",
@@ -2043,7 +2043,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_host_daemon"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2056,7 +2056,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_identity"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "candid",
  "ciborium",
@@ -2075,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_logtail"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_attestation"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "candid",
  "ciborium",
@@ -2102,7 +2102,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_gateway"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "arc-swap",
  "aws-nitro-enclaves-nsm-api",
@@ -2440,9 +2440,9 @@ dependencies = [
 
 [[package]]
 name = "libm"
-version = "0.2.14"
+version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a25169bd5913a4b437588a7e3d127cd6e90127b60e0ffbd834a38f1599e016b8"
+checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "linux-raw-sys"
@@ -3179,7 +3179,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots",
+ "webpki-roots 0.26.11",
  "windows-registry",
 ]
 
@@ -4362,9 +4362,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.26.10"
+version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37493cadf42a2a939ed404698ded7fb378bf301b5011f973361779a3a74f8c93"
+checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
+dependencies = [
+ "webpki-roots 1.0.0",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2853738d1cc4f2da3a225c18ec6c3721abb31961096e9dbf5ab35fa88b19cfdb"
 dependencies = [
  "rustls-pki-types",
 ]
