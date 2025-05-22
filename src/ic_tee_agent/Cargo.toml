@@ -12,6 +12,7 @@ license.workspace = true
 [dependencies]
 http = { workspace = true }
 axum-core = { workspace = true }
+arc-swap = { workspace = true }
 candid = { workspace = true }
 ed25519-consensus = { workspace = true }
 ciborium = { workspace = true }

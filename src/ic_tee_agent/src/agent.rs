@@ -3,20 +3,23 @@ use candid::{
     CandidType, Decode, Principal,
 };
 use ciborium::into_writer;
-use ed25519_consensus::SigningKey;
-use ic_agent::Agent;
+use ic_agent::{Agent, Identity};
 use ic_auth_types::{SignInResponse, SignedDelegation};
 use ic_cose::client::CoseSDK;
 use ic_cose_types::{format_error, types::SignDelegationInput, BoxError, CanisterCaller};
 use serde_bytes::ByteBuf;
+use std::sync::Arc;
 
-use crate::{signed_delegation_from, BasicIdentity, TEEIdentity};
+use crate::{
+    delegated_basic_identity, signed_delegation_from, AtomicIdentity, BasicIdentity,
+    DelegatedIdentity,
+};
 
 #[derive(Clone)]
 pub struct TEEAgent {
     pub identity_canister: Principal,
     pub cose_canister: Principal,
-    pub identity: TEEIdentity,
+    pub identity: Arc<AtomicIdentity>,
     pub agent: Agent,
 }
 
@@ -26,10 +29,10 @@ impl TEEAgent {
         identity_canister: Principal,
         cose_canister: Principal,
     ) -> Result<Self, String> {
-        let identity = TEEIdentity::new();
+        let identity = Arc::new(AtomicIdentity::default());
         let agent = Agent::builder()
             .with_url(host)
-            .with_identity(identity.clone())
+            .with_arc_identity(identity.clone())
             .with_verify_query_signatures(false);
 
         let agent = if host.starts_with("https://") {
@@ -53,39 +56,30 @@ impl TEEAgent {
         })
     }
 
-    fn with_new_identity(&self, identity: TEEIdentity) -> Self {
-        let mut agent = self.agent.clone();
-        agent.set_identity(identity.clone());
-        Self {
-            identity_canister: self.identity_canister,
-            cose_canister: self.cose_canister,
-            identity,
-            agent,
-        }
-    }
-
     pub fn get_principal(&self) -> Principal {
-        self.identity.get_principal()
+        self.identity.sender().expect("failed to get principal")
     }
 
     pub fn is_authenticated(&self) -> bool {
         self.identity.is_authenticated()
     }
 
-    pub fn with_identity(&self, identity: BasicIdentity, expires_in_ms: u64) -> Self {
-        let mut id = self.identity.clone();
-        id.upgrade_with_identity(&identity, expires_in_ms);
-        self.with_new_identity(id)
+    pub fn get_identity(&self) -> Arc<dyn Identity> {
+        self.identity.get()
+    }
+
+    pub fn set_basic_identity(&self, identity: BasicIdentity, expires_in_ms: u64) {
+        let id = delegated_basic_identity(&identity, expires_in_ms);
+        self.identity.set(Box::new(id));
     }
 
     pub async fn sign_in_with_attestation(
         &self,
-        session_key: (SigningKey, Vec<u8>),
+        session: BasicIdentity,
         f: impl FnOnce() -> Result<(String, ByteBuf), String>,
-    ) -> Result<Self, String> {
+    ) -> Result<(), String> {
         let (kind, attestation) = f()?;
 
-        let mut id = self.identity.clone();
         let (user_key, delegation) = {
             let res: Result<SignInResponse, String> = self
                 .canister_update(&self.identity_canister, "sign_in", (kind, attestation))
@@ -100,7 +94,7 @@ impl TEEAgent {
                     "get_delegation",
                     (
                         res.seed,
-                        ByteBuf::from(session_key.1.clone()),
+                        ByteBuf::from(session.public_key().unwrap()),
                         res.expiration,
                     ),
                 )
@@ -108,9 +102,15 @@ impl TEEAgent {
                 .map_err(format_error)?;
             (user_key, res?)
         };
+        let id = DelegatedIdentity::new(
+            user_key,
+            Box::new(session),
+            vec![signed_delegation_from(delegation)],
+        )
+        .map_err(format_error)?;
 
-        id.update_with_delegation(user_key, session_key, signed_delegation_from(delegation));
-        Ok(self.with_new_identity(id))
+        self.identity.set(Box::new(id));
+        Ok(())
     }
 
     // upgrade to a fixed identity derived from a name in a namespace on COSE canister
@@ -118,31 +118,36 @@ impl TEEAgent {
         &self,
         ns: String,
         name: String,
-        session_key: (SigningKey, Vec<u8>),
-    ) -> Result<Self, String> {
-        let mut id = self.identity.clone();
+        session: BasicIdentity,
+    ) -> Result<(), String> {
         let mut msg = vec![];
-        into_writer(&(&ns, &name, &id.get_principal()), &mut msg)
+        into_writer(&(&ns, &name, &self.identity.sender().unwrap()), &mut msg)
             .expect("failed to encode Delegations data");
-        let sig = session_key.0.sign(&msg);
-        let pubkey = ByteBuf::from(session_key.1.clone());
+        let sig = session.sign_arbitrary(&msg).unwrap();
+        let pubkey = ByteBuf::from(session.public_key().unwrap());
 
         let res = self
             .namespace_sign_delegation(&SignDelegationInput {
                 ns,
                 name,
                 pubkey: pubkey.clone(),
-                sig: sig.to_bytes().to_vec().into(),
+                sig: sig.signature.unwrap().into(),
             })
             .await?;
 
         let user_key = res.user_key.to_vec();
-        let res = self
+        let delegation = self
             .get_delegation(&res.seed.0.into(), &pubkey, res.expiration)
             .await?;
-        id.update_with_delegation(user_key, session_key, signed_delegation_from(res));
+        let id = DelegatedIdentity::new(
+            user_key,
+            Box::new(session),
+            vec![signed_delegation_from(delegation)],
+        )
+        .map_err(format_error)?;
 
-        Ok(self.with_new_identity(id))
+        self.identity.set(Box::new(id));
+        Ok(())
     }
 
     pub async fn update_call_raw(

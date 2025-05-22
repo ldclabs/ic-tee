@@ -2,8 +2,7 @@ use axum::{routing, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use candid::Principal;
 use clap::Parser;
-use ed25519_consensus::SigningKey;
-use ic_agent::identity::BasicIdentity;
+use ic_agent::Identity;
 use ic_cose::{client::CoseSDK, rand_bytes};
 use ic_cose_types::{
     types::{setting::CreateSettingInput, SettingPath},
@@ -11,7 +10,7 @@ use ic_cose_types::{
 };
 use ic_tee_agent::{
     agent::TEEAgent,
-    identity::TEEIdentity,
+    basic_identity, new_basic_identity,
     setting::{decrypt_payload, decrypt_tls, encrypt_payload, TLSPayload},
 };
 use ic_tee_cdk::{
@@ -135,7 +134,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
 
     let identity_canister = Principal::from_text(cli.identity_canister)?;
     let cose_canister = Principal::from_text(cli.cose_canister)?;
-    let mut tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister).await?;
+    let tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister).await?;
 
     log::info!(target: LOG_TARGET,
         elapsed = start.elapsed().as_millis() as u64;
@@ -144,7 +143,6 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let namespace = cli.cose_namespace;
     let session_expires_in_ms = cli.session_expires_in_ms.unwrap_or(SESSION_EXPIRES_IN_MS);
 
-    let session_key = TEEIdentity::new_session();
     let user_sign_in_req = to_cbor_bytes(&AttestationUserRequest {
         method: "sign_in".to_string(),
         params: Some(SignInParams {
@@ -154,10 +152,9 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
 
     let attestation = if is_dev {
         // use a fixed identity for local development
-        let sk = SigningKey::from([8u8; 32]);
-        let id = BasicIdentity::from_signing_key(sk);
+        let id = basic_identity([8u8; 32]);
         // jjn6g-sh75l-r3cxb-wxrkl-frqld-6p6qq-d4ato-wske5-op7s5-n566f-bqe
-        tee_agent = tee_agent.with_identity(id, SESSION_EXPIRES_IN_MS);
+        tee_agent.set_basic_identity(id, SESSION_EXPIRES_IN_MS);
 
         Attestation {
             timestamp: unix_ms(),
@@ -170,14 +167,14 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
             ..Default::default()
         }
     } else {
-        let public_key = session_key.1.clone(); // der encoded public key
-        let sig = session_key.0.sign(&user_sign_in_req);
-
+        let session = new_basic_identity();
+        let public_key = session.public_key().unwrap();
+        let sig = session.sign_arbitrary(&user_sign_in_req).unwrap();
         log::info!(target: LOG_TARGET, "start to sign_in_with_attestation");
         let doc = sign_attestation(AttestationRequest {
             public_key: Some(public_key.into()),
             user_data: Some(user_sign_in_req.clone().into()),
-            nonce: Some(sig.to_bytes().to_vec().into()), // use signature as nonce for challenge
+            nonce: Some(sig.signature.unwrap().into()), // use signature as nonce for challenge
         })?;
 
         let attestation = parse_and_verify(doc.as_slice())?;
@@ -185,10 +182,8 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
             elapsed = start.elapsed().as_millis() as u64;
             "parse_and_verify attestation for sign in, module_id: {:?}", attestation.module_id);
 
-        tee_agent = tee_agent
-            .sign_in_with_attestation(session_key.clone(), || {
-                Ok((TEE_KIND.to_string(), doc.into()))
-            })
+        tee_agent
+            .sign_in_with_attestation(session, || Ok((TEE_KIND.to_string(), doc.into())))
             .await?;
         attestation
     };
@@ -200,8 +195,9 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     // upgrade to a permanent identity
     let upgrade_identity = if let Some(ref name) = cli.cose_identity_name {
         log::info!(target: LOG_TARGET, "start to cose_upgrade_identity");
-        tee_agent = tee_agent
-            .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
+        let session = new_basic_identity();
+        tee_agent
+            .cose_upgrade_identity(namespace.clone(), name.clone(), session)
             .await?;
 
         log::info!(target: LOG_TARGET,
@@ -248,9 +244,9 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         name: APP_NAME.to_string(),
         version: APP_VERSION.to_string(),
         kind: TEE_KIND.to_string(),
-        pcr0: attestation.pcrs.get(&0).cloned().unwrap(),
-        pcr1: attestation.pcrs.get(&1).cloned().unwrap(),
-        pcr2: attestation.pcrs.get(&2).cloned().unwrap(),
+        pcr0: attestation.pcrs.get(&0).cloned().unwrap().into(),
+        pcr1: attestation.pcrs.get(&1).cloned().unwrap().into(),
+        pcr2: attestation.pcrs.get(&2).cloned().unwrap().into(),
         start_time_ms: unix_ms(),
         identity_canister,
         cose_canister,
@@ -311,7 +307,6 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let refresh_identity_future = refresh_identity(
         global_cancel_token.clone(),
         local_app_state,
-        public_app_state,
         session_expires_in_ms,
         upgrade_identity,
         namespace.clone(),
@@ -321,16 +316,18 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let _ = tokio::join!(
         async {
             if let Err(err) = local_server.await {
+                global_cancel_token.cancel();
                 log::error!(target: LOG_TARGET, "local server shutdown with error: {err:?}");
             }
         },
         async {
             if let Err(err) = public_server.await {
+                global_cancel_token.cancel();
                 log::error!(target: LOG_TARGET, "public server shutdown with error: {err:?}");
             }
         },
         refresh_identity_future,
-        shutdown_signal(global_cancel_token),
+        shutdown_signal(global_cancel_token.clone()),
     );
 
     Ok(())
@@ -382,6 +379,7 @@ async fn start_public_server(
     tls_config: Option<RustlsConfig>,
 ) -> Result<(), BoxError> {
     let app = Router::new()
+        .route("/.well-known/tee", routing::get(handler::get_information))
         .route(
             "/.well-known/information",
             routing::get(handler::get_information),
@@ -437,7 +435,6 @@ async fn start_public_server(
 async fn refresh_identity(
     cancel_token: CancellationToken,
     local_app_state: handler::AppState,
-    public_app_state: handler::AppState,
     session_expires_in_ms: u64,
     upgrade_identity: Option<String>,
     namespace: String,
@@ -455,19 +452,20 @@ async fn refresh_identity(
         };
 
         loop {
-            let tee_agent = local_app_state.tee_agent();
-            let session_key = TEEIdentity::new_session();
-            let public_key = session_key.1.clone();
-            let new_tee_agent = match upgrade_identity {
+            let session = new_basic_identity();
+            let public_key = session.public_key().unwrap();
+            let rt = match upgrade_identity {
                 Some(ref name) => {
                     // remember to `dfx canister call ic_cose_canister namespace_add_delegator`
-                    tee_agent
-                        .cose_upgrade_identity(namespace.clone(), name.clone(), session_key)
+                    local_app_state
+                        .tee_agent()
+                        .cose_upgrade_identity(namespace.clone(), name.clone(), session)
                         .await
                 }
                 None => {
-                    tee_agent
-                        .sign_in_with_attestation(session_key, || {
+                    local_app_state
+                        .tee_agent()
+                        .sign_in_with_attestation(session, || {
                             match sign_attestation(AttestationRequest {
                                 public_key: Some(public_key.into()),
                                 user_data: Some(user_sign_in_req.clone().into()),
@@ -481,13 +479,10 @@ async fn refresh_identity(
                 }
             };
 
-            match new_tee_agent {
-                Ok(new_tee_agent) => {
-                    let tee_agent = Arc::new(new_tee_agent);
-                    local_app_state.update_tee_agent(tee_agent.clone());
-                    public_app_state.update_tee_agent(tee_agent.clone());
-
-                    log::info!(target: LOG_TARGET, "refresh identity, principal: {:?}", tee_agent.get_principal().to_text());
+            match rt {
+                Ok(()) => {
+                    log::info!(target: LOG_TARGET, "refresh identity, principal: {:?}", local_app_state
+                        .tee_agent().get_principal().to_text());
                     break;
                 }
                 Err(err) => {

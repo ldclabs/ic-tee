@@ -1,4 +1,3 @@
-use arc_swap::ArcSwap;
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -24,10 +23,7 @@ use ic_tee_agent::{
     },
     RPCRequest, RPCResponse,
 };
-use ic_tee_cdk::{
-    AttestationUserRequest, CanisterRequest, TEEAppInformation, TEEAppInformationJSON,
-    TEEAttestation, TEEAttestationJSON,
-};
+use ic_tee_cdk::{AttestationUserRequest, CanisterRequest, TEEAppInformation, TEEAttestation};
 use ic_tee_gateway_sdk::crypto;
 use ic_tee_nitro_attestation::AttestationRequest;
 use serde_bytes::{ByteArray, ByteBuf};
@@ -42,7 +38,7 @@ type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 pub struct AppState {
     info: Arc<TEEAppInformation>,
     http_client: Arc<Client>,
-    tee_agent: Arc<ArcSwap<TEEAgent>>,
+    tee_agent: Arc<TEEAgent>,
     root_secret: [u8; 48],
     upstream_port: Option<u16>,
     cose_namespace: String,
@@ -66,7 +62,7 @@ impl AppState {
         Self {
             info,
             http_client,
-            tee_agent: Arc::new(ArcSwap::from(tee_agent)),
+            tee_agent,
             root_secret,
             upstream_port,
             cose_namespace,
@@ -75,11 +71,7 @@ impl AppState {
     }
 
     pub fn tee_agent(&self) -> Arc<TEEAgent> {
-        self.tee_agent.load().clone()
-    }
-
-    pub fn update_tee_agent(&self, tee_agent: Arc<TEEAgent>) {
-        self.tee_agent.store(tee_agent);
+        self.tee_agent.clone()
     }
 
     pub fn valid_session(&self, headers: &HeaderMap) -> bool {
@@ -195,25 +187,7 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
 
     match Content::from(req.headers()) {
         Content::CBOR(_, _) => Content::CBOR(info, None).into_response(),
-        _ => Content::JSON(
-            TEEAppInformationJSON {
-                id: info.id.to_string(),
-                instance: info.instance,
-                name: info.name,
-                version: info.version,
-                kind: info.kind,
-                pcr0: const_hex::encode(&info.pcr0),
-                pcr1: const_hex::encode(&info.pcr1),
-                pcr2: const_hex::encode(&info.pcr2),
-                start_time_ms: info.start_time_ms,
-                identity_canister: info.identity_canister.to_string(),
-                cose_canister: info.cose_canister.to_string(),
-                registration_canister: info.registration_canister.as_ref().map(|p| p.to_string()),
-                caller: info.caller.to_string(),
-            },
-            None,
-        )
-        .into_response(),
+        _ => Content::JSON(info, None).into_response(),
     }
 }
 
@@ -250,9 +224,9 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
             )
             .into_response(),
             Content::JSON(_, _) => Content::JSON(
-                TEEAttestationJSON {
+                TEEAttestation {
                     kind: TEE_KIND.to_string(),
-                    document: const_hex::encode(&doc),
+                    document: doc.into(),
                 },
                 None,
             )
@@ -295,9 +269,9 @@ pub async fn local_sign_attestation(
             ..Default::default()
         }) {
             Ok(doc) => Content::JSON(
-                TEEAttestationJSON {
+                TEEAttestation {
                     kind: TEE_KIND.to_string(),
-                    document: const_hex::encode(&doc),
+                    document: doc.into(),
                 },
                 None,
             )
@@ -328,7 +302,6 @@ pub async fn local_query_canister(
             }
             let res = app
                 .tee_agent
-                .load()
                 .query_call_raw(&req.canister, &req.method, req.params.to_vec())
                 .await;
             Content::CBOR(res, None).into_response()
@@ -354,7 +327,6 @@ pub async fn local_update_canister(
             }
             let res = app
                 .tee_agent
-                .load()
                 .update_call_raw(&req.canister, &req.method, req.params.to_vec())
                 .await;
             Content::CBOR(res, None).into_response()
@@ -502,7 +474,7 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
             let (digest,): (ByteArray<32>,) =
                 from_reader(req.params.as_slice()).map_err(format_error)?;
             let se = SignedEnvelope::sign_digest(
-                &app.tee_agent.load().identity,
+                &app.tee_agent.get_identity(),
                 digest.into_array().into(),
             )?;
             let mut headers = HeaderMap::new();

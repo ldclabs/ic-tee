@@ -1,12 +1,12 @@
-use candid::Principal;
+use candid::{CandidType, Principal};
 use ciborium::into_writer;
+use ic_auth_types::ByteBufB64;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
 
 pub mod identity;
 
 pub use identity::*;
-use serde_bytes::ByteBuf;
 
 pub fn format_error<T>(err: T) -> String
 where
@@ -43,9 +43,9 @@ pub struct TEEAppInformation {
     pub name: String,
     pub version: String,
     pub kind: String,
-    pub pcr0: ByteBuf,
-    pub pcr1: ByteBuf,
-    pub pcr2: ByteBuf,
+    pub pcr0: ByteBufB64,
+    pub pcr1: ByteBufB64,
+    pub pcr2: ByteBufB64,
     pub start_time_ms: u64,
     pub identity_canister: Principal,
     pub cose_canister: Principal,
@@ -54,40 +54,26 @@ pub struct TEEAppInformation {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TEEAppInformationJSON {
-    pub id: String,
-    pub instance: String,
-    pub name: String,
-    pub version: String,
-    pub kind: String,
-    pub pcr0: String,
-    pub pcr1: String,
-    pub pcr2: String,
-    pub start_time_ms: u64,
-    pub identity_canister: String,
-    pub cose_canister: String,
-    pub registration_canister: Option<String>,
-    pub caller: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TEEAttestation {
     pub kind: String,
-    pub document: ByteBuf,
+    pub document: ByteBufB64,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TEEAttestationJSON {
+#[derive(Clone, Debug, CandidType, Deserialize, Serialize)]
+pub struct TEEInfo {
+    pub id: Principal,
     pub kind: String,
-    pub document: String,
+    // (e.g. https://DOMAIN/.well-known/tee.json)
+    pub url: String,
+    pub attestation: ByteBufB64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CanisterRequest {
     pub canister: Principal,
     pub method: String,
-    pub params: ByteBuf, // params should be encoded in CANDID format
+    pub params: ByteBufB64, // params should be encoded in CANDID format
 }
 
 // result should be encoded in CANDID format
-pub type CanisterResponse = Result<ByteBuf, String>;
+pub type CanisterResponse = Result<ByteBufB64, String>;

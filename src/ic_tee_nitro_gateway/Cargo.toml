@@ -10,6 +10,11 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
+ic_auth_verifier = { workspace = true, features = ["full"] }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.5" }
+ic_tee_agent = { path = "../ic_tee_agent", version = "0.5" }
+ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.5" }
+ic_tee_gateway_sdk = { path = "../ic_tee_gateway_sdk", version = "0.5" }
 axum = { workspace = true }
 axum-server = { workspace = true }
 arc-swap = { workspace = true }
@@ -29,11 +34,6 @@ ic_cose_types = { workspace = true }
 ic-agent = { workspace = true }
 ed25519-consensus = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
-ic_auth_verifier = { workspace = true, features = ["full"] }
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.4" }
-ic_tee_agent = { path = "../ic_tee_agent", version = "0.4" }
-ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.4" }
-ic_tee_gateway_sdk = { path = "../ic_tee_gateway_sdk", version = "0.4" }
 
 [dev-dependencies]
 reqwest = { workspace = true }
