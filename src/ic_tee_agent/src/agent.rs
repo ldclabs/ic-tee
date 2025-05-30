@@ -45,7 +45,8 @@ impl TEEAgent {
         };
 
         if host.starts_with("http://") {
-            agent.fetch_root_key().await.map_err(format_error)?;
+            // ignore error
+            let _ = agent.fetch_root_key().await;
         }
 
         Ok(Self {

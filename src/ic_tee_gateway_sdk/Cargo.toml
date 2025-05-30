@@ -21,8 +21,10 @@ thiserror = { workspace = true }
 ic-secp256k1 = { workspace = true }
 ic-ed25519 = { workspace = true }
 ic_auth_types = { workspace = true }
+ic_auth_verifier = { workspace = true, features = ["full"] }
 ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
+ic-agent = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

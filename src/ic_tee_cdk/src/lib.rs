@@ -29,7 +29,14 @@ pub fn sha3_256_n<const N: usize>(array: [&[u8]; N]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct AttestationRequest {
+    pub public_key: Option<ByteBufB64>,
+    pub user_data: Option<ByteBufB64>,
+    pub nonce: Option<ByteBufB64>,
+}
+
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AttestationUserRequest<T> {
     pub method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -86,6 +86,11 @@ struct Cli {
     #[clap(long)]
     bootstrap_logtail: Option<String>,
 
+    /// if set, the identity in TEE can be used to sign http requests and canister calls for the app.
+    /// Default is false.
+    #[clap(long)]
+    identity_signing: Option<bool>,
+
     /// IC host, default is https://icp-api.io, set it to http://localhost:4943 for local development
     #[clap(long, default_value = "https://icp-api.io")]
     ic_host: String,
@@ -270,6 +275,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         root_secret,
         None,
         namespace.clone(),
+        cli.identity_signing.unwrap_or_default(),
         cli.app_basic_token.clone(),
     );
     let local_server = tokio::spawn(start_local_server(
@@ -285,6 +291,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         [0u8; 48],
         cli.upstream_port,
         String::new(),
+        false,
         None,
     );
 

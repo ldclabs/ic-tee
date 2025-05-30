@@ -24,11 +24,12 @@ use ic_auth_types::ByteBufB64;
 use ic_cose_types::to_cbor_bytes;
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Serialize};
-use std::fmt::Display;
 
 pub static CONTENT_TYPE_CBOR: &str = "application/cbor";
 pub static CONTENT_TYPE_JSON: &str = "application/json";
 pub static CONTENT_TYPE_TEXT: &str = "text/plain";
+
+use crate::BoxError;
 
 /// Represents an RPC request with method name and CBOR-encoded parameters
 #[derive(Clone, Debug, Serialize)]
@@ -118,11 +119,17 @@ where
         params: &args,
     };
 
-    let res = cbor_rpc(client, endpoint, method, None, to_cbor_bytes(&req)).await?;
-    from_reader(&res[..]).map_err(|e| HttpRPCError::ResultError {
+    let res = cbor_rpc(client, endpoint, None, to_cbor_bytes(&req))
+        .await
+        .map_err(|err| HttpRPCError::ResultError {
+            endpoint: endpoint.to_string(),
+            path: method.to_string(),
+            error: format!("{err:?}"),
+        })?;
+    from_reader(&res[..]).map_err(|err| HttpRPCError::ResultError {
         endpoint: endpoint.to_string(),
         path: method.to_string(),
-        error: format!("{e:?}"),
+        error: format!("{err:?}"),
     })
 }
 
@@ -156,7 +163,6 @@ where
     let res = cbor_rpc(
         client,
         endpoint,
-        canister,
         None,
         to_cbor_bytes(&CanisterRequest {
             canister,
@@ -164,7 +170,12 @@ where
             params: &args,
         }),
     )
-    .await?;
+    .await
+    .map_err(|err| HttpRPCError::ResultError {
+        endpoint: endpoint.to_string(),
+        path: method.to_string(),
+        error: format!("{err:?}"),
+    })?;
     let res: (Out,) = decode_args(&res).map_err(|e| HttpRPCError::ResultError {
         endpoint: format!("{endpoint}/{canister}"),
         path: method.to_string(),
@@ -178,7 +189,6 @@ where
 /// # Arguments
 /// * `client` - HTTP client to use for the request
 /// * `endpoint` - URL endpoint to send the request to
-/// * `path` - Path or identifier for the request
 /// * `headers` - Optional headers to include in the request
 /// * `body` - CBOR-encoded request body
 ///
@@ -187,10 +197,9 @@ where
 pub async fn cbor_rpc(
     client: &Client,
     endpoint: &str,
-    path: impl Display,
     headers: Option<http::HeaderMap>,
     body: Vec<u8>,
-) -> Result<ByteBufB64, HttpRPCError> {
+) -> Result<ByteBufB64, BoxError> {
     let mut headers = headers.unwrap_or_default();
     let ct: http::HeaderValue = CONTENT_TYPE_CBOR.parse().unwrap();
     headers.insert(header::CONTENT_TYPE, ct.clone());
@@ -200,35 +209,20 @@ pub async fn cbor_rpc(
         .headers(headers)
         .body(body)
         .send()
-        .await
-        .map_err(|e| HttpRPCError::RequestError {
-            endpoint: endpoint.to_string(),
-            path: path.to_string(),
-            error: format!("{e:?}"),
-        })?;
+        .await?;
     let status = res.status().as_u16();
     if status != 200 {
         return Err(HttpRPCError::ResponseError {
             endpoint: endpoint.to_string(),
-            path: path.to_string(),
+            path: "".to_string(),
             status,
             error: res.text().await.unwrap_or_default(),
-        });
+        }
+        .into());
     }
 
-    let data = res.bytes().await.map_err(|e| HttpRPCError::ResultError {
-        endpoint: endpoint.to_string(),
-        path: path.to_string(),
-        error: format!("{e:?}"),
-    })?;
-    let res: RPCResponse = from_reader(&data[..]).map_err(|e| HttpRPCError::ResultError {
-        endpoint: endpoint.to_string(),
-        path: path.to_string(),
-        error: format!("{e:?}"),
-    })?;
-    res.map_err(|e| HttpRPCError::ResultError {
-        endpoint: endpoint.to_string(),
-        path: path.to_string(),
-        error: format!("{e:?}"),
-    })
+    let data = res.bytes().await?;
+    let res: RPCResponse = from_reader(&data[..])?;
+    let res = res?;
+    Ok(res)
 }

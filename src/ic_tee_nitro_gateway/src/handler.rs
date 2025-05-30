@@ -30,7 +30,7 @@ use ic_tee_cdk::{
 use ic_tee_gateway_sdk::crypto;
 use ic_tee_nitro_attestation::AttestationRequest;
 use serde_bytes::{ByteArray, ByteBuf};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use structured_logger::unix_ms;
 
 use crate::{attestation::sign_attestation, TEE_KIND};
@@ -45,6 +45,7 @@ pub struct AppState {
     root_secret: [u8; 48],
     upstream_port: Option<u16>,
     cose_namespace: String,
+    identity_signing: bool,
     app_basic_token: Option<String>,
 }
 
@@ -55,6 +56,7 @@ impl AppState {
         root_secret: [u8; 48],
         upstream_port: Option<u16>,
         cose_namespace: String,
+        identity_signing: bool,
         app_basic_token: Option<String>,
     ) -> Self {
         let http_client = Arc::new(
@@ -69,6 +71,7 @@ impl AppState {
             root_secret,
             upstream_port,
             cose_namespace,
+            identity_signing,
             app_basic_token,
         }
     }
@@ -249,7 +252,7 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
 pub async fn local_sign_attestation(
     State(app): State<AppState>,
     headers: HeaderMap,
-    cr: Content<AttestationRequest>,
+    cr: Content<RPCRequest>,
 ) -> impl IntoResponse {
     if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
@@ -257,6 +260,24 @@ pub async fn local_sign_attestation(
 
     match cr {
         Content::CBOR(req, _) => {
+            match req.method.as_str() {
+                "sign_attestation" => {}
+                _ => {
+                    return StatusCode::BAD_REQUEST.into_response();
+                }
+            }
+
+            let req: AttestationRequest = match from_reader(req.params.as_slice()) {
+                Ok(req) => req,
+                Err(err) => {
+                    return Content::Text::<()>(
+                        format!("invalid request: {err:?}"),
+                        Some(StatusCode::BAD_REQUEST),
+                    )
+                    .into_response();
+                }
+            };
+
             if let Some(user_data) = &req.user_data {
                 if from_reader::<AttestationUserRequest<SignInParams>, _>(user_data.as_slice())
                     .is_ok()
@@ -280,30 +301,6 @@ pub async fn local_sign_attestation(
                 }
             }
         }
-        Content::JSON(req, _) => {
-            if let Some(user_data) = &req.user_data {
-                if from_reader::<AttestationUserRequest<SignInParams>, _>(user_data.as_slice())
-                    .is_ok()
-                {
-                    return StatusCode::BAD_REQUEST.into_response();
-                }
-            }
-
-            match sign_attestation(req) {
-                Ok(doc) => Content::JSON(
-                    TEEAttestation {
-                        kind: TEE_KIND.to_string(),
-                        document: doc.into(),
-                    },
-                    None,
-                )
-                .into_response(),
-                Err(err) => {
-                    Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
-                        .into_response()
-                }
-            }
-        }
         _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
     }
 }
@@ -314,6 +311,10 @@ pub async fn local_query_canister(
     headers: HeaderMap,
     ct: Content<CanisterRequest>,
 ) -> impl IntoResponse {
+    if !app.identity_signing {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
@@ -339,6 +340,10 @@ pub async fn local_update_canister(
     headers: HeaderMap,
     ct: Content<CanisterRequest>,
 ) -> impl IntoResponse {
+    if !app.identity_signing {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
@@ -383,6 +388,10 @@ pub async fn local_call_identity(
     headers: HeaderMap,
     ct: Content<RPCRequest>,
 ) -> impl IntoResponse {
+    if !app.identity_signing {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
@@ -500,13 +509,7 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
                 &app.tee_agent.get_identity(),
                 digest.into_array().into(),
             )?;
-            let mut headers = HeaderMap::new();
-            se.to_headers(&mut headers)?;
-            let headers: HashMap<&str, &str> = headers
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.to_str().unwrap()))
-                .collect();
-            Ok(to_cbor_bytes(&headers).into())
+            Ok(to_cbor_bytes(&se).into())
         }
         // "sign_delegation" => {}
         _ => Err(format!("unsupported method {}", req.method)),

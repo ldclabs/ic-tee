@@ -23,8 +23,10 @@
 //! - [`CanisterCaller`]: For secure ICP canisters communication
 //! - [`HttpFeatures`]: For secure HTTP operations with signing capabilities
 
-use candid::{utils::ArgumentEncoder, CandidType, Principal};
+use candid::{encode_args, utils::ArgumentEncoder, CandidType, Decode, Principal};
 use ciborium::from_reader;
+use ic_agent::{Agent, Identity};
+use ic_auth_verifier::envelope::SignedEnvelope;
 use ic_cose::client::CoseSDK;
 use ic_cose_types::{
     cose::{
@@ -34,15 +36,17 @@ use ic_cose_types::{
     },
     to_cbor_bytes, CanisterCaller,
 };
-use ic_tee_cdk::TEEAppInformation;
+use ic_tee_cdk::{AttestationRequest, TEEAppInformation, TEEAttestation};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_bytes::{ByteArray, ByteBuf, Bytes};
-use std::{collections::HashMap, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use crate::http::{canister_rpc, cbor_rpc, http_rpc, HttpRPCError, RPCRequest, CONTENT_TYPE_CBOR};
-
-pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+use crate::{
+    http::{canister_rpc, cbor_rpc, http_rpc, HttpRPCError, RPCRequest, CONTENT_TYPE_CBOR},
+    BoxError,
+};
 
 /// Client for interacting with Trusted Execution Environment (TEE) services
 ///
@@ -57,40 +61,99 @@ pub struct Client {
     endpoint_info: String,
     endpoint_keys: String,
     endpoint_identity: String,
+    endpoint_attestation: String,
     endpoint_canister_query: String,
     endpoint_canister_update: String,
+    identity: Option<Arc<dyn Identity>>,
+    agent: Option<Agent>,
 }
 
-impl Client {
-    /// Creates a new Client instance
-    ///
-    /// # Arguments
-    /// * `tee_host` - Base URL of the TEE service
-    /// * `basic_token` - Authentication token for TEE access
-    /// * `cose_canister` - Principal of the COSE canister
-    ///
-    /// # Returns
-    /// Configured TEEClient instance with initialized HTTP clients and endpoints
-    pub fn new(
-        tee_host: &str,
-        basic_token: &str,
-        user_agent: &str,
-        cose_canister: Principal,
-    ) -> Self {
+/// Builder for constructing a Client instance with customizable parameters
+pub struct ClientBuilder {
+    tee_host: String,
+    basic_token: String,
+    user_agent: String,
+    cose_canister: Principal,
+    identity: Option<Arc<dyn Identity>>,
+    agent: Option<Agent>,
+    outer_http: Option<reqwest::Client>,
+}
+
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self {
+            tee_host: "http://127.0.0.1:8080".to_string(),
+            basic_token: "".to_string(),
+            user_agent: "".to_string(),
+            cose_canister: Principal::anonymous(),
+            identity: None,
+            agent: None,
+            outer_http: None,
+        }
+    }
+}
+
+impl ClientBuilder {
+    /// Sets the TEE host URL
+    pub fn with_tee_host(mut self, tee_host: &str) -> Self {
+        self.tee_host = tee_host.to_string();
+        self
+    }
+
+    /// Sets the basic authentication token
+    pub fn with_basic_token(mut self, basic_token: &str) -> Self {
+        self.basic_token = basic_token.to_string();
+        self
+    }
+
+    /// Sets the user agent string
+    pub fn with_user_agent(mut self, user_agent: &str) -> Self {
+        self.user_agent = user_agent.to_string();
+        self
+    }
+
+    /// Sets the COSE canister principal
+    pub fn with_cose_canister(mut self, cose_canister: Principal) -> Self {
+        self.cose_canister = cose_canister;
+        self
+    }
+
+    /// Sets the identity for signing operations
+    pub fn with_identity(mut self, identity: Arc<dyn Identity>) -> Self {
+        self.identity = Some(identity);
+        self
+    }
+
+    /// Sets the agent for canister communication
+    pub fn with_agent(mut self, agent: Agent) -> Self {
+        self.agent = Some(agent);
+        self
+    }
+
+    pub fn with_http_client(mut self, outer_http: reqwest::Client) -> Self {
+        self.outer_http = Some(outer_http);
+        self
+    }
+
+    /// Builds the Client instance with the configured parameters
+    pub fn build(self) -> Client {
         let http = reqwest::Client::builder()
             .http2_keep_alive_interval(Some(Duration::from_secs(25)))
             .http2_keep_alive_timeout(Duration::from_secs(15))
             .http2_keep_alive_while_idle(true)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(20))
-            .user_agent(user_agent)
+            .user_agent(self.user_agent.clone())
             .default_headers({
                 let mut headers = http::header::HeaderMap::with_capacity(3);
                 let ct: http::HeaderValue = CONTENT_TYPE_CBOR.parse().unwrap();
                 headers.insert(http::header::CONTENT_TYPE, ct.clone());
                 headers.insert(http::header::ACCEPT, ct);
-                if !basic_token.is_empty() {
-                    headers.insert(http::header::AUTHORIZATION, basic_token.parse().unwrap());
+                if !self.basic_token.is_empty() {
+                    headers.insert(
+                        http::header::AUTHORIZATION,
+                        self.basic_token.parse().unwrap(),
+                    );
                 }
 
                 headers
@@ -98,31 +161,38 @@ impl Client {
             .build()
             .expect("Anda reqwest client should build");
 
-        let outer_http = reqwest::Client::builder()
-            .use_rustls_tls()
-            .https_only(true)
-            .http2_keep_alive_interval(Some(Duration::from_secs(25)))
-            .http2_keep_alive_timeout(Duration::from_secs(15))
-            .http2_keep_alive_while_idle(true)
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(120))
-            .gzip(true)
-            .user_agent(user_agent)
-            .build()
-            .expect("Anda reqwest client should build");
+        let outer_http = self.outer_http.unwrap_or_else(|| {
+            reqwest::Client::builder()
+                .use_rustls_tls()
+                .https_only(true)
+                .http2_keep_alive_interval(Some(Duration::from_secs(25)))
+                .http2_keep_alive_timeout(Duration::from_secs(15))
+                .http2_keep_alive_while_idle(true)
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(120))
+                .gzip(true)
+                .user_agent(self.user_agent)
+                .build()
+                .expect("Anda reqwest client should build")
+        });
 
-        Self {
+        Client {
             http,
             outer_http,
-            cose_canister,
-            endpoint_info: format!("{}/information", tee_host),
-            endpoint_keys: format!("{}/keys", tee_host),
-            endpoint_identity: format!("{}/identity", tee_host),
-            endpoint_canister_query: format!("{}/canister/query", tee_host),
-            endpoint_canister_update: format!("{}/canister/update", tee_host),
+            cose_canister: self.cose_canister,
+            endpoint_info: format!("{}/information", self.tee_host),
+            endpoint_keys: format!("{}/keys", self.tee_host),
+            endpoint_identity: format!("{}/identity", self.tee_host),
+            endpoint_attestation: format!("{}/attestation", self.tee_host),
+            endpoint_canister_query: format!("{}/canister/query", self.tee_host),
+            endpoint_canister_update: format!("{}/canister/update", self.tee_host),
+            identity: self.identity,
+            agent: self.agent,
         }
     }
+}
 
+impl Client {
     pub async fn connect_tee(
         &self,
         cancel_token: CancellationToken,
@@ -387,6 +457,20 @@ impl Client {
         Ok(res.0.into_array())
     }
 
+    pub async fn sign_attestation(
+        &self,
+        req: AttestationRequest,
+    ) -> Result<TEEAttestation, BoxError> {
+        let res: TEEAttestation = http_rpc(
+            &self.http,
+            &self.endpoint_attestation,
+            "sign_attestation",
+            &(req,),
+        )
+        .await?;
+        Ok(res)
+    }
+
     /// Makes an HTTPs request
     ///
     /// # Arguments
@@ -431,20 +515,21 @@ impl Client {
         headers: Option<http::HeaderMap>,
         body: Option<Vec<u8>>, // default is empty
     ) -> Result<reqwest::Response, BoxError> {
-        let res: HashMap<String, String> = http_rpc(
-            &self.http,
-            &self.endpoint_identity,
-            "sign_http",
-            &(Bytes::new(&message_digest),),
-        )
-        .await?;
+        let se = match self.identity {
+            Some(ref identity) => SignedEnvelope::sign_digest(identity, message_digest.into())?,
+            None => {
+                http_rpc(
+                    &self.http,
+                    &self.endpoint_identity,
+                    "sign_http",
+                    &(Bytes::new(&message_digest),),
+                )
+                .await?
+            }
+        };
+
         let mut headers = headers.unwrap_or_default();
-        res.into_iter().for_each(|(k, v)| {
-            headers.insert(
-                http::HeaderName::try_from(k).expect("invalid header name"),
-                http::HeaderValue::try_from(v).expect("invalid header value"),
-            );
-        });
+        se.to_authorization(&mut headers)?;
         self.https_call(url, method, Some(headers), body).await
     }
 
@@ -470,22 +555,21 @@ impl Client {
         };
         let body = to_cbor_bytes(&req);
         let digest: [u8; 32] = sha3_256(&body);
-        let res: HashMap<String, String> = http_rpc(
-            &self.http,
-            &self.endpoint_identity,
-            "sign_http",
-            &(Bytes::new(&digest),),
-        )
-        .await?;
+        let se = match self.identity {
+            Some(ref identity) => SignedEnvelope::sign_digest(identity, digest.into())?,
+            None => {
+                http_rpc(
+                    &self.http,
+                    &self.endpoint_identity,
+                    "sign_http",
+                    &(Bytes::new(&digest),),
+                )
+                .await?
+            }
+        };
         let mut headers = http::HeaderMap::new();
-        res.into_iter().for_each(|(k, v)| {
-            headers.insert(
-                http::HeaderName::try_from(k).expect("invalid header name"),
-                http::HeaderValue::try_from(v).expect("invalid header value"),
-            );
-        });
-
-        let res = cbor_rpc(&self.outer_http, endpoint, method, Some(headers), body).await?;
+        se.to_authorization(&mut headers)?;
+        let res = cbor_rpc(&self.outer_http, endpoint, Some(headers), body).await?;
         let res = from_reader(&res[..]).map_err(|e| HttpRPCError::ResultError {
             endpoint: endpoint.to_string(),
             path: method.to_string(),
@@ -522,15 +606,25 @@ impl CanisterCaller for Client {
         method: &str,
         args: In,
     ) -> Result<Out, BoxError> {
-        let res = canister_rpc(
-            &self.http,
-            &self.endpoint_canister_query,
-            canister,
-            method,
-            args,
-        )
-        .await?;
-        Ok(res)
+        match self.agent {
+            Some(ref agent) => {
+                let input = encode_args(args)?;
+                let res = agent.query(canister, method).with_arg(input).call().await?;
+                let output = Decode!(res.as_slice(), Out)?;
+                Ok(output)
+            }
+            None => {
+                let output = canister_rpc(
+                    &self.http,
+                    &self.endpoint_canister_query,
+                    canister,
+                    method,
+                    args,
+                )
+                .await?;
+                Ok(output)
+            }
+        }
     }
 
     /// Performs an update call to a canister (may modify state)
@@ -548,14 +642,28 @@ impl CanisterCaller for Client {
         method: &str,
         args: In,
     ) -> Result<Out, BoxError> {
-        let res = canister_rpc(
-            &self.http,
-            &self.endpoint_canister_update,
-            canister,
-            method,
-            args,
-        )
-        .await?;
-        Ok(res)
+        match self.agent {
+            Some(ref agent) => {
+                let input = encode_args(args)?;
+                let res = agent
+                    .update(canister, method)
+                    .with_arg(input)
+                    .call_and_wait()
+                    .await?;
+                let output = Decode!(res.as_slice(), Out)?;
+                Ok(output)
+            }
+            None => {
+                let output = canister_rpc(
+                    &self.http,
+                    &self.endpoint_canister_update,
+                    canister,
+                    method,
+                    args,
+                )
+                .await?;
+                Ok(output)
+            }
+        }
     }
 }
