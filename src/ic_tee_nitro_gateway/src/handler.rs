@@ -7,6 +7,7 @@ use axum::{
 use candid::decode_args;
 use ciborium::from_reader;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
+use ic_auth_types::ByteBufB64;
 use ic_auth_verifier::envelope::{
     SignedEnvelope, ANONYMOUS_PRINCIPAL, HEADER_IC_AUTH_DELEGATION, HEADER_IC_AUTH_PUBKEY,
     HEADER_IC_AUTH_SIGNATURE, HEADER_IC_AUTH_USER,
@@ -23,7 +24,9 @@ use ic_tee_agent::{
     },
     RPCRequest, RPCResponse,
 };
-use ic_tee_cdk::{AttestationUserRequest, CanisterRequest, TEEAppInformation, TEEAttestation};
+use ic_tee_cdk::{
+    AttestationUserRequest, CanisterRequest, SignInParams, TEEAppInformation, TEEAttestation,
+};
 use ic_tee_gateway_sdk::crypto;
 use ic_tee_nitro_attestation::AttestationRequest;
 use serde_bytes::{ByteArray, ByteBuf};
@@ -91,6 +94,7 @@ impl AppState {
             &self.root_secret,
             derivation_path.into_iter().map(|v| v.into_vec()).collect(),
         )
+        .into()
     }
 
     pub fn a256gcm_ecdh_key(
@@ -111,16 +115,18 @@ impl AppState {
             derivation_path.into_iter().map(|v| v.into_vec()).collect(),
             msg,
         )
+        .into()
     }
 
     pub fn ed25519_public_key(
         &self,
         derivation_path: Vec<ByteBuf>,
     ) -> (ByteArray<32>, ByteArray<32>) {
-        crypto::ed25519_public_key(
+        let (pk, code) = crypto::ed25519_public_key(
             &self.root_secret,
             derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-        )
+        );
+        (pk.into(), code.into())
     }
 
     pub fn secp256k1_sign_message_bip340(
@@ -133,6 +139,7 @@ impl AppState {
             derivation_path.into_iter().map(|v| v.into_vec()).collect(),
             msg,
         )
+        .into()
     }
 
     pub fn secp256k1_sign_message_ecdsa(
@@ -145,6 +152,7 @@ impl AppState {
             derivation_path.into_iter().map(|v| v.into_vec()).collect(),
             msg,
         )
+        .into()
     }
 
     pub fn secp256k1_sign_digest_ecdsa(
@@ -157,21 +165,23 @@ impl AppState {
             derivation_path.into_iter().map(|v| v.into_vec()).collect(),
             msg_hash,
         )
+        .into()
     }
 
     pub fn secp256k1_public_key(
         &self,
         derivation_path: Vec<ByteBuf>,
     ) -> (ByteArray<33>, ByteArray<32>) {
-        crypto::secp256k1_public_key(
+        let (pk, code) = crypto::secp256k1_public_key(
             &self.root_secret,
             derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-        )
+        );
+        (pk.into(), code.into())
     }
 }
 
-/// local_server: GET /information
-/// public_server: GET /.well-known/information
+/// local_server: GET /tee
+/// public_server: GET /.well-known/tee
 pub async fn get_information(State(app): State<AppState>, req: Request) -> impl IntoResponse {
     let mut info = app.info.as_ref().clone();
     info.caller = if let Some(se) = SignedEnvelope::from_authorization(req.headers())
@@ -206,9 +216,8 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
     };
 
     let res = sign_attestation(AttestationRequest {
-        public_key: None,
-        user_data: Some(ByteBuf::from(caller.as_slice())),
-        nonce: None,
+        user_data: Some(ByteBufB64::from(caller.as_slice())),
+        ..Default::default()
     });
 
     match res {
@@ -231,7 +240,7 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
                 None,
             )
             .into_response(),
-            _ => Content::Text::<()>(const_hex::encode(&doc), None).into_response(),
+            _ => Content::Text::<()>(ByteBufB64::from(doc).to_string(), None).into_response(),
         },
     }
 }
@@ -240,47 +249,61 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
 pub async fn local_sign_attestation(
     State(app): State<AppState>,
     headers: HeaderMap,
-    cr: Content<AttestationUserRequest<ByteBuf>>,
+    cr: Content<AttestationRequest>,
 ) -> impl IntoResponse {
     if !app.valid_session(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
     match cr {
-        Content::CBOR(req, _) => match sign_attestation(AttestationRequest {
-            user_data: Some(ByteBuf::from(to_cbor_bytes(&req))),
-            ..Default::default()
-        }) {
-            Ok(doc) => Content::CBOR(
-                TEEAttestation {
-                    kind: TEE_KIND.to_string(),
-                    document: doc.into(),
-                },
-                None,
-            )
-            .into_response(),
-            Err(err) => {
-                Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
-                    .into_response()
+        Content::CBOR(req, _) => {
+            if let Some(user_data) = &req.user_data {
+                if from_reader::<AttestationUserRequest<SignInParams>, _>(user_data.as_slice())
+                    .is_ok()
+                {
+                    return StatusCode::BAD_REQUEST.into_response();
+                }
             }
-        },
-        Content::JSON(req, _) => match sign_attestation(AttestationRequest {
-            user_data: Some(ByteBuf::from(to_cbor_bytes(&req))),
-            ..Default::default()
-        }) {
-            Ok(doc) => Content::JSON(
-                TEEAttestation {
-                    kind: TEE_KIND.to_string(),
-                    document: doc.into(),
-                },
-                None,
-            )
-            .into_response(),
-            Err(err) => {
-                Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
-                    .into_response()
+
+            match sign_attestation(req) {
+                Ok(doc) => Content::CBOR(
+                    TEEAttestation {
+                        kind: TEE_KIND.to_string(),
+                        document: doc.into(),
+                    },
+                    None,
+                )
+                .into_response(),
+                Err(err) => {
+                    Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
+                        .into_response()
+                }
             }
-        },
+        }
+        Content::JSON(req, _) => {
+            if let Some(user_data) = &req.user_data {
+                if from_reader::<AttestationUserRequest<SignInParams>, _>(user_data.as_slice())
+                    .is_ok()
+                {
+                    return StatusCode::BAD_REQUEST.into_response();
+                }
+            }
+
+            match sign_attestation(req) {
+                Ok(doc) => Content::JSON(
+                    TEEAttestation {
+                        kind: TEE_KIND.to_string(),
+                        document: doc.into(),
+                    },
+                    None,
+                )
+                .into_response(),
+                Err(err) => {
+                    Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
+                        .into_response()
+                }
+            }
+        }
         _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
     }
 }

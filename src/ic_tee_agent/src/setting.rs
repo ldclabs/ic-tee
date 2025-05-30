@@ -1,4 +1,5 @@
 use ciborium::from_reader;
+use ic_auth_types::ByteBufB64;
 use ic_cose::rand_bytes;
 use ic_cose_types::{
     cose::{
@@ -9,7 +10,6 @@ use ic_cose_types::{
     OwnedRef,
 };
 use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
 
 pub fn decrypt_payload(
     info: &SettingInfo,
@@ -69,8 +69,8 @@ pub fn encrypt_payload(payload: &[u8], secret: &[u8; 32], aad: &[u8]) -> Result<
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TLSPayload {
-    pub crt: ByteBuf, // PEM-encoded certificate
-    pub key: ByteBuf, // PEM-encoded private key
+    pub crt: ByteBufB64, // PEM-encoded certificate
+    pub key: ByteBufB64, // PEM-encoded private key
 }
 
 pub fn decrypt_tls(info: &SettingInfo, secret: &[u8; 32]) -> Result<TLSPayload, String> {

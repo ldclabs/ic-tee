@@ -1,5 +1,5 @@
+use ic_auth_types::ByteBufB64;
 use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
 
 pub mod agent;
 pub mod http;
@@ -11,14 +11,14 @@ pub use identity::*;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RPCRequest {
     pub method: String,
-    pub params: ByteBuf, // params should be encoded in CBOR format
+    pub params: ByteBufB64, // params should be encoded in CBOR format
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RPCRequestRef<'a> {
     pub method: &'a str,
-    pub params: &'a ByteBuf,
+    pub params: &'a ByteBufB64,
 }
 
 // result should be encoded in CBOR format
-pub type RPCResponse = Result<ByteBuf, String>;
+pub type RPCResponse = Result<ByteBufB64, String>;

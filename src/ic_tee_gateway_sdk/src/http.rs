@@ -20,10 +20,10 @@
 use candid::{decode_args, encode_args, utils::ArgumentEncoder, CandidType, Principal};
 use ciborium::from_reader;
 use http::header;
+use ic_auth_types::ByteBufB64;
 use ic_cose_types::to_cbor_bytes;
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_bytes::ByteBuf;
 use std::fmt::Display;
 
 pub static CONTENT_TYPE_CBOR: &str = "application/cbor";
@@ -41,7 +41,8 @@ pub struct RPCRequest<'a> {
     /// - `()`: No parameters
     /// - `(1,)`: Single parameter
     /// - `(1, "hello", 3.14)`: Three parameters
-    pub params: &'a ByteBuf,
+    #[serde(with = "serde_bytes")]
+    pub params: &'a [u8],
 }
 
 /// Represents a request to an ICP canister with canister ID, method name, and Candid-encoded parameters
@@ -57,13 +58,14 @@ pub struct CanisterRequest<'a> {
     /// - `()`: No parameters
     /// - `(1,)`: Single parameter
     /// - `(1, "hello", 3.14)`: Three parameters
-    pub params: &'a ByteBuf,
+    #[serde(with = "serde_bytes")]
+    pub params: &'a [u8],
 }
 
 /// Represents an RPC response that can be either:
-/// - Ok(ByteBuf): CBOR or Candid encoded successful response
+/// - Ok(ByteBufB64): CBOR or Candid encoded successful response
 /// - Err(String): Error message as a string
-pub type RPCResponse = Result<ByteBuf, String>;
+pub type RPCResponse = Result<ByteBufB64, String>;
 
 /// Possible errors when working with http_rpc
 #[derive(Debug, thiserror::Error)]
@@ -113,7 +115,7 @@ where
     let args = to_cbor_bytes(args);
     let req = RPCRequest {
         method,
-        params: &args.into(),
+        params: &args,
     };
 
     let res = cbor_rpc(client, endpoint, method, None, to_cbor_bytes(&req)).await?;
@@ -159,7 +161,7 @@ where
         to_cbor_bytes(&CanisterRequest {
             canister,
             method,
-            params: &ByteBuf::from(args),
+            params: &args,
         }),
     )
     .await?;
@@ -188,7 +190,7 @@ pub async fn cbor_rpc(
     path: impl Display,
     headers: Option<http::HeaderMap>,
     body: Vec<u8>,
-) -> Result<ByteBuf, HttpRPCError> {
+) -> Result<ByteBufB64, HttpRPCError> {
     let mut headers = headers.unwrap_or_default();
     let ct: http::HeaderValue = CONTENT_TYPE_CBOR.parse().unwrap();
     headers.insert(header::CONTENT_TYPE, ct.clone());

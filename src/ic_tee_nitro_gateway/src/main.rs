@@ -3,6 +3,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use candid::Principal;
 use clap::Parser;
 use ic_agent::Identity;
+use ic_auth_types::ByteBufB64;
 use ic_cose::{client::CoseSDK, rand_bytes};
 use ic_cose_types::{
     types::{setting::CreateSettingInput, SettingPath},
@@ -17,7 +18,6 @@ use ic_tee_cdk::{
     to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInformation, SESSION_EXPIRES_IN_MS,
 };
 use ic_tee_nitro_attestation::{parse_and_verify, Attestation, AttestationRequest};
-use serde_bytes::ByteBuf;
 use std::{
     collections::BTreeMap,
     net::SocketAddr,
@@ -160,9 +160,9 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
             timestamp: unix_ms(),
             module_id: "local_development".to_string(),
             pcrs: BTreeMap::from([
-                (0usize, ByteBuf::from([0u8; 48])),
-                (1, ByteBuf::from([1u8; 48])),
-                (2, ByteBuf::from([2u8; 48])),
+                (0usize, ByteBufB64::from([0u8; 48])),
+                (1, ByteBufB64::from([1u8; 48])),
+                (2, ByteBufB64::from([2u8; 48])),
             ]),
             ..Default::default()
         }
@@ -244,9 +244,9 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         name: APP_NAME.to_string(),
         version: APP_VERSION.to_string(),
         kind: TEE_KIND.to_string(),
-        pcr0: attestation.pcrs.get(&0).cloned().unwrap().into(),
-        pcr1: attestation.pcrs.get(&1).cloned().unwrap().into(),
-        pcr2: attestation.pcrs.get(&2).cloned().unwrap().into(),
+        pcr0: attestation.pcrs.get(&0).cloned().unwrap(),
+        pcr1: attestation.pcrs.get(&1).cloned().unwrap(),
+        pcr2: attestation.pcrs.get(&2).cloned().unwrap(),
         start_time_ms: unix_ms(),
         identity_canister,
         cose_canister,
@@ -339,6 +339,7 @@ async fn start_local_server(
     cancel_token: CancellationToken,
 ) -> Result<(), BoxError> {
     let app = Router::new()
+        .route("/tee", routing::get(handler::get_information))
         .route("/information", routing::get(handler::get_information))
         .route(
             "/attestation",

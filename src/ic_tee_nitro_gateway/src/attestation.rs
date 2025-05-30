@@ -5,9 +5,9 @@ use ic_tee_nitro_attestation::AttestationRequest;
 
 pub fn sign_attestation(req: AttestationRequest) -> Result<Vec<u8>, BoxError> {
     let request = Request::Attestation {
-        public_key: req.public_key,
-        user_data: req.user_data,
-        nonce: req.nonce,
+        public_key: req.public_key.map(|v| v.0.into()),
+        user_data: req.user_data.map(|v| v.0.into()),
+        nonce: req.nonce.map(|v| v.0.into()),
     };
 
     let nsm_fd = nsm_driver::nsm_init();

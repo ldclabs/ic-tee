@@ -16,9 +16,11 @@ candid = { workspace = true }
 ciborium = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
+sha3 = { workspace = true }
 thiserror = { workspace = true }
 ic-secp256k1 = { workspace = true }
 ic-ed25519 = { workspace = true }
+ic_auth_types = { workspace = true }
 ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
 reqwest = { workspace = true }

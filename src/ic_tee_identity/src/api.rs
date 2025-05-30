@@ -34,13 +34,13 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
         return Err("attestation expired".to_string());
     }
     let pcr0 = attestation.pcrs.get(&0).ok_or("missing PCR0")?;
-    let pubkey: ByteBuf = attestation
+    let pubkey = attestation
         .public_key
         .ok_or_else(|| "missing public key".to_string())?;
-    let user_data: ByteBuf = attestation
+    let user_data = attestation
         .user_data
         .ok_or_else(|| "missing user data".to_string())?;
-    let sig: ByteBuf = attestation
+    let sig = attestation
         .nonce
         .ok_or_else(|| "missing nonce".to_string())?;
 

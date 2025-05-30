@@ -1,6 +1,6 @@
 use candid::CandidType;
+use ic_auth_types::ByteBufB64;
 use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
 use std::collections::BTreeMap;
 
 #[derive(CandidType, Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
@@ -28,27 +28,27 @@ pub struct Attestation {
     pub timestamp: u64,
 
     /// Map of all locked PCRs at the moment the attestation document was generated
-    pub pcrs: BTreeMap<usize, ByteBuf>,
+    pub pcrs: BTreeMap<usize, ByteBufB64>,
 
     /// The infrastucture certificate used to sign the document, DER encoded
-    pub certificate: ByteBuf,
+    pub certificate: ByteBufB64,
     /// Issuing CA bundle for infrastructure certificate
-    pub cabundle: Vec<ByteBuf>,
+    pub cabundle: Vec<ByteBufB64>,
 
     /// An optional DER-encoded key the attestation consumer can use to encrypt data with
-    pub public_key: Option<ByteBuf>,
+    pub public_key: Option<ByteBufB64>,
 
     /// Additional signed user data, as defined by protocol.
-    pub user_data: Option<ByteBuf>,
+    pub user_data: Option<ByteBufB64>,
 
     /// An optional cryptographic nonce provided by the attestation consumer as a proof of
     /// authenticity.
-    pub nonce: Option<ByteBuf>,
+    pub nonce: Option<ByteBufB64>,
 }
 
 #[derive(CandidType, Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 pub struct AttestationRequest {
-    pub public_key: Option<ByteBuf>,
-    pub user_data: Option<ByteBuf>,
-    pub nonce: Option<ByteBuf>,
+    pub public_key: Option<ByteBufB64>,
+    pub user_data: Option<ByteBufB64>,
+    pub nonce: Option<ByteBufB64>,
 }

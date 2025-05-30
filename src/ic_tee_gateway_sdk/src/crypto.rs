@@ -4,12 +4,12 @@ use ic_cose_types::{
     cose::{
         ecdh::ecdh_x25519,
         encrypt0::{cose_decrypt0, cose_encrypt0},
-        mac3_256,
     },
     types::{ECDHInput, ECDHOutput},
     BoxError,
 };
-use serde_bytes::{ByteArray, ByteBuf};
+use serde_bytes::ByteBuf;
+use sha3::Digest;
 
 pub use ic_cose_types::cose::{keccak256, sha256, sha3_256};
 
@@ -17,14 +17,9 @@ pub use ic_cose_types::cose::{keccak256, sha256, sha3_256};
 ///
 /// The derivation path is hashed using HMAC-SHA256 with "A256GCM" as the context string
 /// to create a salt. The root secret is then used with HKDF to derive the final key.
-pub fn a256gcm_key(root_secret: &[u8], derivation_path: Vec<Vec<u8>>) -> ByteArray<32> {
-    let salt: Vec<u8> = derivation_path
-        .into_iter()
-        .flat_map(|slice| slice.into_iter())
-        .collect();
-    let salt = mac3_256(&salt, b"A256GCM");
-    let key = derive_a256gcm_key(root_secret, Some(&salt));
-    key.into()
+pub fn a256gcm_key(root_secret: &[u8], derivation_path: Vec<Vec<u8>>) -> [u8; 32] {
+    let salt = derivation_path_to_context(&derivation_path);
+    derive_a256gcm_key(root_secret, Some(&salt))
 }
 
 /// Derives an AES-GCM-256 key using ECDH (Elliptic Curve Diffie-Hellman) key exchange.
@@ -39,14 +34,9 @@ pub fn a256gcm_ecdh_key(
     derivation_path: Vec<Vec<u8>>,
     ecdh: &ECDHInput,
 ) -> ECDHOutput<ByteBuf> {
-    let salt: Vec<u8> = derivation_path
-        .into_iter()
-        .flat_map(|slice| slice.into_iter())
-        .collect();
-    let salt = mac3_256(&salt, b"A256GCM_ECDH");
+    let salt = derivation_path_to_context(&derivation_path);
     let key = derive_a256gcm_key(root_secret, Some(&salt));
     let secret_key: [u8; 32] = rand_bytes();
-    let secret_key = mac3_256(&secret_key, ecdh.nonce.as_ref());
     let (shared_secret, public_key) = ecdh_x25519(secret_key, *ecdh.public_key);
     let key = cose_encrypt0(&key, shared_secret.as_bytes(), &[], &ecdh.nonce, None)
         .expect("a256gcm_key: failed to encrypt key");
@@ -66,10 +56,10 @@ pub fn a256gcm_ecdh_key(
 /// the payload with AES-GCM-256.
 ///
 /// Returns the decrypted payload or an error if decryption fails.
-pub fn decrypt_ecdh(secret_key: [u8; 32], ecdh: &ECDHOutput<ByteBuf>) -> Result<ByteBuf, BoxError> {
+pub fn decrypt_ecdh(secret_key: [u8; 32], ecdh: &ECDHOutput<ByteBuf>) -> Result<Vec<u8>, BoxError> {
     let (shared_secret, _) = ecdh_x25519(secret_key, *ecdh.public_key);
     let key = cose_decrypt0(&ecdh.payload, shared_secret.as_bytes(), &[])?;
-    Ok(key.into())
+    Ok(key)
 }
 
 /// Signs a message using Ed25519 signature scheme.
@@ -83,7 +73,7 @@ pub fn ed25519_sign_message(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
     msg: &[u8],
-) -> ByteArray<64> {
+) -> [u8; 64] {
     let sk = ic_ed25519::PrivateKey::generate_from_seed(root_secret);
     let path = ic_ed25519::DerivationPath::new(
         derivation_path
@@ -92,8 +82,7 @@ pub fn ed25519_sign_message(
             .collect(),
     );
     let (sk, _) = sk.derive_subkey(&path);
-    let sig = sk.sign_message(msg);
-    sig.into()
+    sk.sign_message(msg)
 }
 
 /// Derives an Ed25519 public key and chain code from a root secret and derivation path.
@@ -109,7 +98,7 @@ pub fn ed25519_sign_message(
 pub fn ed25519_public_key(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
-) -> (ByteArray<32>, ByteArray<32>) {
+) -> ([u8; 32], [u8; 32]) {
     let sk = ic_ed25519::PrivateKey::generate_from_seed(root_secret);
     let path = ic_ed25519::DerivationPath::new(
         derivation_path
@@ -119,7 +108,7 @@ pub fn ed25519_public_key(
     );
     let pk = sk.public_key();
     let (pk, chain_code) = pk.derive_subkey(&path);
-    (pk.serialize_raw().into(), chain_code.into())
+    (pk.serialize_raw(), chain_code)
 }
 
 /// Derives a new Ed25519 public key and chain code from an existing public key.
@@ -137,7 +126,7 @@ pub fn derive_ed25519_public_key(
     public_key: &[u8; 32],
     chain_code: &[u8; 32],
     derivation_path: Vec<Vec<u8>>,
-) -> (ByteArray<32>, ByteArray<32>) {
+) -> ([u8; 32], [u8; 32]) {
     let path = ic_ed25519::DerivationPath::new(
         derivation_path
             .into_iter()
@@ -147,7 +136,7 @@ pub fn derive_ed25519_public_key(
 
     let pk = ic_ed25519::PublicKey::deserialize_raw(public_key).expect("invalid public key");
     let (pk, chain_code) = pk.derive_subkey_with_chain_code(&path, chain_code);
-    (pk.serialize_raw().into(), chain_code.into())
+    (pk.serialize_raw(), chain_code)
 }
 
 /// Signs a message using BIP-340 Schnorr signature scheme for secp256k1.
@@ -161,7 +150,7 @@ pub fn secp256k1_sign_message_bip340(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
     msg: &[u8],
-) -> ByteArray<64> {
+) -> [u8; 64] {
     let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
     let path = ic_secp256k1::DerivationPath::new(
         derivation_path
@@ -170,8 +159,7 @@ pub fn secp256k1_sign_message_bip340(
             .collect(),
     );
     let (sk, _) = sk.derive_subkey(&path);
-    let sig = sk.sign_message_with_bip340_no_rng(msg);
-    sig.into()
+    sk.sign_message_with_bip340_no_rng(msg)
 }
 
 /// Signs a message using ECDSA (Elliptic Curve Digital Signature Algorithm) for secp256k1.
@@ -186,7 +174,7 @@ pub fn secp256k1_sign_message_ecdsa(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
     msg: &[u8],
-) -> ByteArray<64> {
+) -> [u8; 64] {
     let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
     let path = ic_secp256k1::DerivationPath::new(
         derivation_path
@@ -195,8 +183,7 @@ pub fn secp256k1_sign_message_ecdsa(
             .collect(),
     );
     let (sk, _) = sk.derive_subkey(&path);
-    let sig = sk.sign_message_with_ecdsa(msg);
-    sig.into()
+    sk.sign_message_with_ecdsa(msg)
 }
 
 /// Signs a digest using ECDSA (Elliptic Curve Digital Signature Algorithm) for secp256k1.
@@ -210,7 +197,7 @@ pub fn secp256k1_sign_digest_ecdsa(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
     message_hash: &[u8],
-) -> ByteArray<64> {
+) -> [u8; 64] {
     let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
     let path = ic_secp256k1::DerivationPath::new(
         derivation_path
@@ -219,8 +206,7 @@ pub fn secp256k1_sign_digest_ecdsa(
             .collect(),
     );
     let (sk, _) = sk.derive_subkey(&path);
-    let sig = sk.sign_digest_with_ecdsa(message_hash);
-    sig.into()
+    sk.sign_digest_with_ecdsa(message_hash)
 }
 
 /// Derives a secp256k1 public key and chain code from a root secret and derivation path.
@@ -236,7 +222,7 @@ pub fn secp256k1_sign_digest_ecdsa(
 pub fn secp256k1_public_key(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
-) -> (ByteArray<33>, ByteArray<32>) {
+) -> ([u8; 33], [u8; 32]) {
     let sk = ic_secp256k1::PrivateKey::generate_from_seed(root_secret);
     let path = ic_secp256k1::DerivationPath::new(
         derivation_path
@@ -250,7 +236,7 @@ pub fn secp256k1_public_key(
     let pk: [u8; 33] = pk
         .try_into()
         .expect("secp256k1_public_key: invalid SEC1 public key");
-    (pk.into(), chain_code.into())
+    (pk, chain_code)
 }
 
 /// Derives a new secp256k1 public key from an existing one using chain code and derivation path.
@@ -269,7 +255,7 @@ pub fn derive_secp256k1_public_key(
     public_key: &[u8; 33],
     chain_code: &[u8; 32],
     derivation_path: Vec<Vec<u8>>,
-) -> Result<(ByteArray<33>, ByteArray<32>), BoxError> {
+) -> Result<([u8; 33], [u8; 32]), BoxError> {
     let path = ic_secp256k1::DerivationPath::new(
         derivation_path
             .into_iter()
@@ -283,7 +269,16 @@ pub fn derive_secp256k1_public_key(
     let pk: [u8; 33] = pk
         .try_into()
         .expect("secp256k1_public_key: invalid SEC1 public key");
-    Ok((pk.into(), chain_code.into()))
+    Ok((pk, chain_code))
+}
+
+fn derivation_path_to_context(derivation_path: &[Vec<u8>]) -> Vec<u8> {
+    let mut hasher = sha3::Sha3_256::new();
+    for path in derivation_path {
+        hasher.update(path);
+    }
+    let rt: [u8; 32] = hasher.finalize().into();
+    rt.into()
 }
 
 #[cfg(test)]
@@ -390,6 +385,6 @@ mod test {
         assert_eq!(key, key2);
 
         let key3 = a256gcm_key(&ROOT_SECRET, vec![]);
-        assert_ne!(key.as_slice(), key3.as_slice());
+        assert_eq!(key.as_slice(), key3.as_slice());
     }
 }

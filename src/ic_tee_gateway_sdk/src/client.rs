@@ -466,7 +466,7 @@ impl Client {
         let params = to_cbor_bytes(&params);
         let req = RPCRequest {
             method,
-            params: &params.into(),
+            params: &params,
         };
         let body = to_cbor_bytes(&req);
         let digest: [u8; 32] = sha3_256(&body);
