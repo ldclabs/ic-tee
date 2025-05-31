@@ -12,6 +12,10 @@ use crate::store;
 const ATTESTATION_EXPIRES_IN_MS: u64 = 1000 * 60 * 5; // 5 minute
 const MILLISECONDS: u64 = 1000000;
 
+/// Maximum allowed time drift in milliseconds for delegation verification.
+/// This prevents replay attacks while allowing for reasonable clock differences.
+const PERMITTED_DRIFT_MS: u64 = 60 * 1000;
+
 #[ic_cdk::query]
 fn get_state() -> Result<store::State, String> {
     Ok(store::state::with(|s| s.clone()))
@@ -30,7 +34,7 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
     };
 
     let now_ms = ic_cdk::api::time() / MILLISECONDS;
-    if now_ms > attestation.timestamp + ATTESTATION_EXPIRES_IN_MS {
+    if now_ms > attestation.timestamp + ATTESTATION_EXPIRES_IN_MS + PERMITTED_DRIFT_MS {
         return Err("attestation expired".to_string());
     }
     let pcr0 = attestation.pcrs.get(&0).ok_or("missing PCR0")?;

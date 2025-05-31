@@ -12,6 +12,7 @@ license.workspace = true
 [dependencies]
 ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.5" }
 http = { workspace = true }
+arc-swap = { workspace = true }
 candid = { workspace = true }
 ciborium = { workspace = true }
 serde = { workspace = true }

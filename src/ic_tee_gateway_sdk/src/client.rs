@@ -23,6 +23,7 @@
 //! - [`CanisterCaller`]: For secure ICP canisters communication
 //! - [`HttpFeatures`]: For secure HTTP operations with signing capabilities
 
+use arc_swap::ArcSwap;
 use candid::{encode_args, utils::ArgumentEncoder, CandidType, Decode, Principal};
 use ciborium::from_reader;
 use ic_agent::{Agent, Identity};
@@ -53,7 +54,6 @@ use crate::{
 /// Provides cryptographic operations, canister communication, and HTTP features
 /// through a secure TEE interface. Manages both internal and external HTTP clients
 /// with different configurations for secure communication.
-#[derive(Clone)]
 pub struct Client {
     pub http: reqwest::Client,
     pub outer_http: reqwest::Client,
@@ -66,9 +66,11 @@ pub struct Client {
     endpoint_canister_update: String,
     identity: Option<Arc<dyn Identity>>,
     agent: Option<Agent>,
+    tee: ArcSwap<Option<TEEAppInformation>>,
 }
 
 /// Builder for constructing a Client instance with customizable parameters
+#[non_exhaustive]
 pub struct ClientBuilder {
     tee_host: String,
     basic_token: String,
@@ -188,6 +190,7 @@ impl ClientBuilder {
             endpoint_canister_update: format!("{}/canister/update", self.tee_host),
             identity: self.identity,
             agent: self.agent,
+            tee: ArcSwap::new(Arc::new(None)),
         }
     }
 }
@@ -201,6 +204,7 @@ impl Client {
             if let Ok(tee_info) = self.http.get(&self.endpoint_info).send().await {
                 let tee_info = tee_info.bytes().await?;
                 let tee_info: TEEAppInformation = from_reader(&tee_info[..])?;
+                self.tee.store(Arc::new(Some(tee_info.clone())));
                 return Ok(tee_info);
             }
 
@@ -212,6 +216,16 @@ impl Client {
             }
 
             log::info!("connecting TEE service again");
+        }
+    }
+
+    pub fn get_principal(&self) -> Principal {
+        match self.identity {
+            Some(ref identity) => identity.sender().expect("Failed to get sender principal"),
+            None => match self.tee.load().as_ref() {
+                Some(tee_info) => tee_info.id,
+                None => Principal::anonymous(),
+            },
         }
     }
 
@@ -457,6 +471,39 @@ impl Client {
         Ok(res.0.into_array())
     }
 
+    /// Signs a message envelope with the client identity
+    ///
+    /// # Arguments
+    /// * `message_digest` - 32-byte message digest to sign
+    ///
+    /// # Returns
+    /// Result containing the signed envelope or an error
+    pub async fn sign_envelope(
+        &self,
+        message_digest: [u8; 32],
+    ) -> Result<SignedEnvelope, BoxError> {
+        let se = match self.identity {
+            Some(ref identity) => SignedEnvelope::sign_digest(identity, message_digest.into())?,
+            None => {
+                http_rpc(
+                    &self.http,
+                    &self.endpoint_identity,
+                    "sign_http",
+                    &(Bytes::new(&message_digest),),
+                )
+                .await?
+            }
+        };
+        Ok(se)
+    }
+
+    /// Signs an TEE attestation request
+    ///
+    /// # Arguments
+    /// * `req` - Attestation request containing necessary parameters
+    ///
+    /// # Returns
+    /// Result containing the TEE attestation or an error
     pub async fn sign_attestation(
         &self,
         req: AttestationRequest,
@@ -478,6 +525,9 @@ impl Client {
     /// * `method` - HTTP method (GET, POST, etc.)
     /// * `headers` - Optional HTTP headers
     /// * `body` - Optional request body (default empty)
+    ///
+    /// # Returns
+    /// Result containing the HTTP response or an error
     pub async fn https_call(
         &self,
         url: &str,
