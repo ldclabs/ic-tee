@@ -43,13 +43,15 @@ pub struct AttestationUserRequest<T> {
     pub params: Option<T>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub struct TEEAppInformation {
     pub id: Principal,
     pub instance: String,
     pub name: String,
     pub version: String,
     pub kind: String,
+    pub origin: String, // (e.g. https://DOMAIN)
+    pub url: String,    // (e.g. https://DOMAIN/.well-known/tee.json)
     pub pcr0: ByteBufB64,
     pub pcr1: ByteBufB64,
     pub pcr2: ByteBufB64,
@@ -60,22 +62,13 @@ pub struct TEEAppInformation {
     pub caller: Principal,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub struct TEEAttestation {
     pub kind: String,
-    pub document: ByteBufB64,
-}
-
-#[derive(Clone, Debug, CandidType, Deserialize, Serialize)]
-pub struct TEEInfo {
-    pub id: Principal,
-    pub kind: String,
-    // (e.g. https://DOMAIN/.well-known/tee.json)
-    pub url: String,
     pub attestation: ByteBufB64,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub struct CanisterRequest {
     pub canister: Principal,
     pub method: String,

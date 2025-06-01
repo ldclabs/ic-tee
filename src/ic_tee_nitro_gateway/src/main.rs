@@ -94,6 +94,10 @@ struct Cli {
     /// IC host, default is https://icp-api.io, set it to http://localhost:4943 for local development
     #[clap(long, default_value = "https://icp-api.io")]
     ic_host: String,
+
+    /// The server origin URL, default is http://127.0.0.1:8443
+    #[clap(long, default_value = "http://127.0.0.1:8443")]
+    origin: String,
 }
 
 // cargo run -p ic_tee_nitro_gateway -- --identity-canister e7tgb-6aaaa-aaaap-akqfa-cai --cose-canister 53cyg-yyaaa-aaaap-ahpua-cai --cose-namespace _ --cose-identity-name jarvis --ic-host http://localhost:4943
@@ -249,6 +253,8 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         name: APP_NAME.to_string(),
         version: APP_VERSION.to_string(),
         kind: TEE_KIND.to_string(),
+        origin: cli.origin.clone(),
+        url: format!("{}/.well-known/tee", cli.origin),
         pcr0: attestation.pcrs.get(&0).cloned().unwrap(),
         pcr1: attestation.pcrs.get(&1).cloned().unwrap(),
         pcr2: attestation.pcrs.get(&2).cloned().unwrap(),

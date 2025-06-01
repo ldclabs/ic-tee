@@ -219,6 +219,10 @@ impl Client {
         }
     }
 
+    pub fn tee_info(&self) -> Option<TEEAppInformation> {
+        self.tee.load().as_ref().clone()
+    }
+
     pub fn get_principal(&self) -> Principal {
         match self.identity {
             Some(ref identity) => identity.sender().expect("Failed to get sender principal"),

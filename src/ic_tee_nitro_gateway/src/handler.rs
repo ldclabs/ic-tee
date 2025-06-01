@@ -230,7 +230,7 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
             Content::CBOR(_, _) => Content::CBOR(
                 TEEAttestation {
                     kind: TEE_KIND.to_string(),
-                    document: doc.into(),
+                    attestation: doc.into(),
                 },
                 None,
             )
@@ -238,7 +238,7 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
             Content::JSON(_, _) => Content::JSON(
                 TEEAttestation {
                     kind: TEE_KIND.to_string(),
-                    document: doc.into(),
+                    attestation: doc.into(),
                 },
                 None,
             )
@@ -290,7 +290,7 @@ pub async fn local_sign_attestation(
                 Ok(doc) => Content::CBOR(
                     TEEAttestation {
                         kind: TEE_KIND.to_string(),
-                        document: doc.into(),
+                        attestation: doc.into(),
                     },
                     None,
                 )

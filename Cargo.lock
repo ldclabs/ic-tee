@@ -1965,7 +1965,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_agent"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "arc-swap",
  "axum-core",
@@ -1986,7 +1986,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cdk"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "candid",
  "ciborium",
@@ -2000,7 +2000,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cli"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2023,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_daemon"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -2036,7 +2036,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_gateway_sdk"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "arc-swap",
  "candid",
@@ -2062,7 +2062,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_host_daemon"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -2075,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_identity"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "candid",
  "ciborium",
@@ -2094,7 +2094,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_logtail"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_attestation"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "candid",
  "ciborium",
@@ -2122,7 +2122,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_gateway"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "arc-swap",
  "aws-nitro-enclaves-nsm-api",
