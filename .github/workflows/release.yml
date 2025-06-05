@@ -14,8 +14,8 @@ jobs:
         rustup target add wasm32-unknown-unknown
         cargo install ic-wasm
         mkdir -p out
-        cargo build --target wasm32-unknown-unknown --release --locked -p ic_tee_identity
-        for CAN in ic_tee_identity
+        cargo build --target wasm32-unknown-unknown --release --locked -p ic_tee_identity_canister
+        for CAN in ic_tee_identity_canister
         do
           cp "target/wasm32-unknown-unknown/release/$CAN.wasm" out/
           cp "src/$CAN/$CAN.did" "out/$CAN.did"
@@ -42,7 +42,7 @@ jobs:
     - name: Build linux binary
       run: |
         mkdir -p out
-        rustup update --no-self-update stable-x86_64-unknown-linux-musl
+        rustup update --no-self-update x86_64-unknown-linux-musl
         export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-s"
         for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_daemon ic_tee_cli
         do

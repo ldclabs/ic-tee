@@ -16,7 +16,7 @@ Relation project:
 | [ic_tee_cli](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_cli)                             | A command-line tool implemented in Rust for the IC-TEE.                                                   |
 | [ic_tee_daemon](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_daemon)                       | A daemon running in enclave.                                                                              |
 | [ic_tee_host_daemon](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_host_daemon)             | A daemon running on the host machine of TEEs.                                                             |
-| [ic_tee_identity](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_identity)                   | An on-chain authentication service for Trusted Execution Environments (TEEs) on the Internet Computer.    |
+| [ic_tee_identity_canister](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_identity_canister) | An on-chain authentication service for Trusted Execution Environments (TEEs) on the Internet Computer.    |
 | [ic_tee_logtail](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_logtail)                     | A simple log tailing service for the TEE environment.                                                     |
 | [ic_tee_nitro_attestation](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_nitro_attestation) | A Rust library to process AWS Nitro enclave attestation.                                                  |
 | [ic_tee_nitro_gateway](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_nitro_gateway)         | A gateway service within an AWS Nitro enclave.                                                            |

@@ -14,9 +14,9 @@ test:
 
 # cargo install ic-wasm
 build-wasm:
-	@cargo build --release --target wasm32-unknown-unknown --package ic_tee_identity
+	@cargo build --release --target wasm32-unknown-unknown --package ic_tee_identity_canister
 
 # cargo install candid-extractor
 build-did:
-	candid-extractor target/wasm32-unknown-unknown/release/ic_tee_identity.wasm > src/ic_tee_identity/ic_tee_identity.did
+	candid-extractor target/wasm32-unknown-unknown/release/ic_tee_identity_canister.wasm > src/ic_tee_identity_canister/ic_tee_identity_canister.did
 	dfx generate

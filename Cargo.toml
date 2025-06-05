@@ -6,7 +6,7 @@ members = [
   "src/ic_tee_daemon",
   "src/ic_tee_gateway_sdk",
   "src/ic_tee_host_daemon",
-  "src/ic_tee_identity",
+  "src/ic_tee_identity_canister",
   "src/ic_tee_logtail",
   "src/ic_tee_nitro_attestation",
   "src/ic_tee_nitro_gateway",

@@ -2080,7 +2080,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic_tee_identity"
+name = "ic_tee_identity_canister"
 version = "0.5.5"
 dependencies = [
  "candid",

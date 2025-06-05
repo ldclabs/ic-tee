@@ -1,11 +1,11 @@
 {
   "canisters": {
-    "ic_tee_identity": {
-      "candid": "src/ic_tee_identity/ic_tee_identity.did",
+    "ic_tee_identity_canister": {
+      "candid": "src/ic_tee_identity_canister/ic_tee_identity_canister.did",
       "declarations": {
         "node_compatibility": true
       },
-      "package": "ic_tee_identity",
+      "package": "ic_tee_identity_canister",
       "optimize": "cycles",
       "type": "rust"
     }
