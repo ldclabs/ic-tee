@@ -57,8 +57,8 @@ sha3 = "0.10"
 ic-cdk = "0.18"
 ic-secp256k1 = { version = "0.1" }
 ic-ed25519 = { version = "0.2" }
-ic_auth_types = { version = "0.4" }
-ic_auth_verifier = { version = "0.4" }
+ic_auth_types = { version = "0.5" }
+ic_auth_verifier = { version = "0.5" }
 ic-stable-structures = "0.6"
 ic-canister-sig-creation = "1"
 ic-certification = "3"

@@ -5,15 +5,14 @@ use candid::{
 use ciborium::into_writer;
 use ic_agent::{Agent, Identity};
 use ic_auth_types::{SignInResponse, SignedDelegation};
+use ic_auth_verifier::{
+    delegated_basic_identity, signed_delegation_from, AtomicIdentity, BasicIdentity,
+    DelegatedIdentity,
+};
 use ic_cose::client::CoseSDK;
 use ic_cose_types::{format_error, types::SignDelegationInput, BoxError, CanisterCaller};
 use serde_bytes::ByteBuf;
 use std::sync::Arc;
-
-use crate::{
-    delegated_basic_identity, signed_delegation_from, AtomicIdentity, BasicIdentity,
-    DelegatedIdentity,
-};
 
 #[derive(Clone)]
 pub struct TEEAgent {

@@ -23,7 +23,6 @@ ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
-anyhow = { workspace = true }
 base64 = { workspace = true }
 clap = { version = "=4.5", features = ["derive"] }
 pkcs8 = { version = "0.10", features = ["pem"] }

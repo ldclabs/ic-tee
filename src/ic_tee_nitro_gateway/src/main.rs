@@ -4,6 +4,7 @@ use candid::Principal;
 use clap::Parser;
 use ic_agent::Identity;
 use ic_auth_types::ByteBufB64;
+use ic_auth_verifier::{basic_identity, new_basic_identity};
 use ic_cose::{client::CoseSDK, rand_bytes};
 use ic_cose_types::{
     types::{setting::CreateSettingInput, SettingPath},
@@ -11,8 +12,7 @@ use ic_cose_types::{
 };
 use ic_tee_agent::{
     agent::TEEAgent,
-    basic_identity, new_basic_identity,
-    setting::{decrypt_payload, decrypt_tls, encrypt_payload, TLSPayload},
+    setting::{decrypt_payload, encrypt_payload, vetkey_decrypt, TLSPayload},
 };
 use ic_tee_cdk::{
     to_cbor_bytes, AttestationUserRequest, SignInParams, TEEAppInformation, SESSION_EXPIRES_IN_MS,
@@ -38,7 +38,7 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 static TEE_KIND: &str = "NITRO"; // AWS Nitro Enclaves
 static SETTING_KEY_TLS: &str = "tls";
-static COSE_SECRET_PERMANENT_KEY: &str = "v1";
+static COSE_ROOT_SECRET_KEY: &str = "root";
 static MY_COSE_AAD: &str = "ldclabs/ic-tee";
 
 static LOCAL_HTTP_ADDR: &str = "127.0.0.1:8080";
@@ -219,33 +219,9 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
 
     let tee_agent = Arc::new(tee_agent);
     let principal = tee_agent.get_principal();
-    log::info!(target: LOG_TARGET, "start to get master_secret");
-    // should replace with vetkey in the future
-    let admin_master_secret = tee_agent
-        .get_cose_encrypted_key(&SettingPath {
-            ns: namespace.clone(),
-            user_owned: false,
-            key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
-            subject: Some(principal),
-            ..Default::default()
-        })
-        .await?;
-    let my_master_secret = tee_agent
-        .get_cose_encrypted_key(&SettingPath {
-            ns: namespace.clone(),
-            user_owned: true, // admin can't read user owned master_secret
-            key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
-            subject: Some(principal),
-            ..Default::default()
-        })
-        .await?;
-    log::info!(target: LOG_TARGET,
-            elapsed = start.elapsed().as_millis() as u64;
-            "get master_secret");
 
     log::info!(target: LOG_TARGET, "start to get_or_set_root_secret");
-    let root_secret =
-        get_or_set_root_secret(&tee_agent, &start, namespace.clone(), &my_master_secret).await?;
+    let root_secret = get_or_set_root_secret(&tee_agent, namespace.clone(), &start).await?;
 
     let info = TEEAppInformation {
         id: principal,
@@ -305,7 +281,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         None
     } else {
         log::info!(target: LOG_TARGET, "start to get_tls");
-        let tls = get_tls(&tee_agent, &start, namespace.clone(), &admin_master_secret).await?;
+        let tls = get_tls(&tee_agent, &start, namespace.clone()).await?;
         let config = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec()).await?;
         Some(config)
     };
@@ -538,16 +514,25 @@ async fn shutdown_signal(cancel_token: CancellationToken) {
 
 async fn get_or_set_root_secret(
     tee_agent: &TEEAgent,
-    start: &Instant,
     ns: String,
-    master_secret: &[u8; 32],
+    start: &Instant,
 ) -> Result<[u8; 48], BoxError> {
     let path = SettingPath {
         ns,
         user_owned: true,
-        key: COSE_SECRET_PERMANENT_KEY.as_bytes().to_vec().into(),
+        key: COSE_ROOT_SECRET_KEY.as_bytes().to_vec().into(),
         ..Default::default()
     };
+
+    log::info!(target: LOG_TARGET, "start to get master_secret");
+    let (vk, _dpk) = tee_agent.vetkey(&path).await?;
+    let master_secret = vk.derive_symmetric_key("", 32);
+    let master_secret: [u8; 32] = master_secret
+        .try_into()
+        .map_err(|_| "invalid master key length")?;
+    log::info!(target: LOG_TARGET,
+            elapsed = start.elapsed().as_millis() as u64;
+            "get master_secret");
     let setting = tee_agent.setting_get(&path).await;
     let setting = match setting {
         Ok(setting) => setting,
@@ -555,7 +540,7 @@ async fn get_or_set_root_secret(
             log::error!(target: LOG_TARGET, "get root_secret failed: {:?}", err);
             // generate a new root_secret in TEE
             let root_secret: [u8; 48] = rand_bytes();
-            let payload = encrypt_payload(&root_secret, master_secret, MY_COSE_AAD.as_bytes())?;
+            let payload = encrypt_payload(&root_secret, &master_secret, MY_COSE_AAD.as_bytes())?;
             // ignore error because it may already exist
             let res = tee_agent
                 .setting_create(
@@ -581,7 +566,7 @@ async fn get_or_set_root_secret(
         elapsed = start.elapsed().as_millis() as u64;
         "get root_secret");
 
-    let root_secret = decrypt_payload(&setting, master_secret, MY_COSE_AAD.as_bytes())?;
+    let root_secret = decrypt_payload(&setting, &master_secret, MY_COSE_AAD.as_bytes())?;
     root_secret.try_into().map_err(|val: Vec<u8>| {
         format!("invalid root secret, expected 48 bytes, got {}", val.len()).into()
     })
@@ -591,13 +576,14 @@ async fn get_tls(
     tee_agent: &TEEAgent,
     start: &Instant,
     ns: String,
-    master_secret: &[u8; 32],
 ) -> Result<TLSPayload, BoxError> {
     let path = SettingPath {
         ns,
         key: SETTING_KEY_TLS.as_bytes().to_vec().into(),
         ..Default::default()
     };
+    log::info!(target: LOG_TARGET, "start to get master_secret");
+    let (vk, _dpk) = tee_agent.vetkey(&path).await?;
     let setting = tee_agent.setting_get(&path).await;
     match setting {
         Ok(setting) => {
@@ -605,7 +591,7 @@ async fn get_tls(
             elapsed = start.elapsed().as_millis() as u64;
             "get TLS");
 
-            let tls = decrypt_tls(&setting, master_secret)?;
+            let tls = vetkey_decrypt(&vk, &setting.payload.ok_or("TLS payload not found")?)?;
             Ok(tls)
         }
         Err(err) => {

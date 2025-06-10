@@ -3,10 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod agent;
 pub mod http;
-pub mod identity;
 pub mod setting;
-
-pub use identity::*;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RPCRequest {

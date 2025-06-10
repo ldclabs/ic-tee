@@ -12,9 +12,7 @@ license.workspace = true
 [dependencies]
 http = { workspace = true }
 axum-core = { workspace = true }
-arc-swap = { workspace = true }
 candid = { workspace = true }
-ed25519-consensus = { workspace = true }
 ciborium = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,5 +23,6 @@ mime = { workspace = true }
 ic_cose = { workspace = true }
 ic_cose_types = { workspace = true }
 ic_auth_types = { workspace = true }
+ic_auth_verifier = { workspace = true, features = ["full"] }
 
 [dev-dependencies]

@@ -13,7 +13,6 @@ license.workspace = true
 candid = { workspace = true }
 lazy_static = { workspace = true }
 serde = { workspace = true }
-serde_bytes = { workspace = true }
 ciborium = { workspace = true }
 sha2 = { workspace = true }
 coset = { workspace = true }
