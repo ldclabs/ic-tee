@@ -1340,7 +1340,7 @@ dependencies = [
  "cfg-if",
  "js-sys",
  "libc",
- "wasi 0.11.0+wasi-snapshot-preview1",
+ "wasi 0.11.1+wasi-snapshot-preview1",
  "wasm-bindgen",
 ]
 
@@ -2011,9 +2011,9 @@ dependencies = [
 
 [[package]]
 name = "ic_cose"
-version = "0.8.7"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22ffdab44ab44454a3db44aed5c16109f1e13f155a4a692b9a828f4460f2a183"
+checksum = "2ade9472b57a2833682dd305d346e3e5c43d86a6a7b37b3738cb4db430a825a0"
 dependencies = [
  "async-trait",
  "candid",
@@ -2029,9 +2029,9 @@ dependencies = [
 
 [[package]]
 name = "ic_cose_types"
-version = "0.8.7"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28045c017229ad7ff2b45f1432544ac7b6d18a5acb0d0102b8b330f1160c57af"
+checksum = "1b24d5a9572cd65a7448ae1a487534721161eb9c8fd0138f2d00c4ddd2aaeaff"
 dependencies = [
  "aes-gcm",
  "candid",
@@ -2067,7 +2067,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_agent"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "axum-core",
  "bytes",
@@ -2087,7 +2087,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cdk"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "candid",
  "ciborium",
@@ -2100,7 +2100,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_cli"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "base64 0.22.1",
  "candid",
@@ -2122,7 +2122,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_daemon"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -2135,7 +2135,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_gateway_sdk"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "arc-swap",
  "candid",
@@ -2161,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_host_daemon"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -2174,7 +2174,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_identity_canister"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "candid",
  "ciborium",
@@ -2193,7 +2193,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_logtail"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -2204,7 +2204,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_attestation"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "candid",
  "ciborium",
@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "ic_tee_nitro_gateway"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "aws-nitro-enclaves-nsm-api",
  "axum",
@@ -2690,7 +2690,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78bed444cc8a2160f01cbcf811ef18cac863ad68ae8ca62092e8db51d51c761c"
 dependencies = [
  "libc",
- "wasi 0.11.0+wasi-snapshot-preview1",
+ "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.59.0",
 ]
 
@@ -3265,9 +3265,9 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "reqwest"
-version = "0.12.19"
+version = "0.12.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2f8e5513d63f2e5b386eb5106dc67eaf3f84e95258e210489136b8b92ad6119"
+checksum = "eabf4c97d9130e2bf606614eb937e86edac8292eaa6f422f995d7e8de1eb1813"
 dependencies = [
  "async-compression",
  "base64 0.22.1",
@@ -3284,12 +3284,10 @@ dependencies = [
  "hyper-rustls",
  "hyper-tls",
  "hyper-util",
- "ipnet",
  "js-sys",
  "log",
  "mime",
  "native-tls",
- "once_cell",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -4406,9 +4404,9 @@ dependencies = [
 
 [[package]]
 name = "wasi"
-version = "0.11.0+wasi-snapshot-preview1"
+version = "0.11.1+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
+checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasi"
