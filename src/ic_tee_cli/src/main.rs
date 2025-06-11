@@ -116,10 +116,10 @@ pub enum Commands {
         /// The setting subject
         #[arg(long)]
         user_owned: bool,
-
+        /// The setting version
         #[arg(long, default_value = "0")]
         version: u32,
-
+        /// Whether to use vetkey encryption
         #[arg(long, default_value = "false")]
         vetkey: bool,
     },
@@ -137,13 +137,13 @@ pub enum Commands {
         /// file to save
         #[arg(long)]
         file: String,
-
+        /// The setting description
         #[arg(long)]
         desc: Option<String>,
-
+        /// The setting version
         #[arg(long, default_value = "0")]
         version: u32,
-
+        /// Whether to use vetkey encryption
         #[arg(long, default_value = "false")]
         vetkey: bool,
     },
@@ -162,7 +162,7 @@ pub enum Commands {
         /// The certificate pem file
         #[arg(long)]
         cert_file: String,
-
+        /// Whether to use vetkey encryption
         #[arg(long, default_value = "false")]
         vetkey: bool,
     },

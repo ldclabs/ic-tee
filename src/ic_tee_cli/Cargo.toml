@@ -10,9 +10,9 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.5" }
-ic_tee_agent = { path = "../ic_tee_agent", version = "0.5" }
-ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.5" }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.6" }
+ic_tee_agent = { path = "../ic_tee_agent", version = "0.6" }
+ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.6" }
 candid = { workspace = true, features = ["value", "printer"] }
 serde_bytes = { workspace = true }
 tokio = { workspace = true }
