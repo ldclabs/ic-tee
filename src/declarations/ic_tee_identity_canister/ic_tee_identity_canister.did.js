@@ -7,7 +7,7 @@ export const idlFactory = ({ IDL }) => {
     'session_expires_in_ms' : IDL.Nat64,
     'name' : IDL.Text,
   });
-  const ChainArgs = IDL.Variant({ 'Upgrade' : UpgradeArgs, 'Init' : InitArgs });
+  const CanArgs = IDL.Variant({ 'Upgrade' : UpgradeArgs, 'Init' : InitArgs });
   const Delegation = IDL.Record({
     'pubkey' : IDL.Vec(IDL.Nat8),
     'targets' : IDL.Opt(IDL.Vec(IDL.Principal)),
@@ -50,6 +50,6 @@ export const init = ({ IDL }) => {
     'session_expires_in_ms' : IDL.Nat64,
     'name' : IDL.Text,
   });
-  const ChainArgs = IDL.Variant({ 'Upgrade' : UpgradeArgs, 'Init' : InitArgs });
-  return [IDL.Opt(ChainArgs)];
+  const CanArgs = IDL.Variant({ 'Upgrade' : UpgradeArgs, 'Init' : InitArgs });
+  return [IDL.Opt(CanArgs)];
 };

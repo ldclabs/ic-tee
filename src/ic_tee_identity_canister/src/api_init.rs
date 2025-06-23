@@ -5,7 +5,7 @@ use serde::Deserialize;
 use crate::store;
 
 #[derive(Clone, Debug, CandidType, Deserialize)]
-pub enum ChainArgs {
+pub enum CanArgs {
     Init(InitArgs),
     Upgrade(UpgradeArgs),
 }
@@ -23,18 +23,18 @@ pub struct UpgradeArgs {
 }
 
 #[ic_cdk::init]
-fn init(args: Option<ChainArgs>) {
-    match args.unwrap_or(ChainArgs::Init(InitArgs {
+fn init(args: Option<CanArgs>) {
+    match args.unwrap_or(CanArgs::Init(InitArgs {
         name: "IC TEE Identity Service".to_string(),
         session_expires_in_ms: SESSION_EXPIRES_IN_MS, // 1 day
     })) {
-        ChainArgs::Init(args) => {
+        CanArgs::Init(args) => {
             store::state::with_mut(|s| {
                 s.name = args.name;
                 s.session_expires_in_ms = args.session_expires_in_ms;
             });
         }
-        ChainArgs::Upgrade(_) => {
+        CanArgs::Upgrade(_) => {
             ic_cdk::trap(
                 "cannot initialize the canister with an Upgrade args. Please provide an Init args.",
             );
@@ -48,11 +48,11 @@ fn pre_upgrade() {
 }
 
 #[ic_cdk::post_upgrade]
-fn post_upgrade(args: Option<ChainArgs>) {
+fn post_upgrade(args: Option<CanArgs>) {
     store::state::load();
 
     match args {
-        Some(ChainArgs::Upgrade(args)) => {
+        Some(CanArgs::Upgrade(args)) => {
             store::state::with_mut(|s| {
                 if let Some(name) = args.name {
                     s.name = name;
@@ -62,7 +62,7 @@ fn post_upgrade(args: Option<ChainArgs>) {
                 }
             });
         }
-        Some(ChainArgs::Init(_)) => {
+        Some(CanArgs::Init(_)) => {
             ic_cdk::trap(
                 "cannot upgrade the canister with an Init args. Please provide an Upgrade args.",
             );

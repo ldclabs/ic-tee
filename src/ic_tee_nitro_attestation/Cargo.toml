@@ -17,9 +17,6 @@ ciborium = { workspace = true }
 sha2 = { workspace = true }
 coset = { workspace = true }
 x509-parser = { workspace = true, features = ["verify"] }
-const-hex = { workspace = true }
+hex = { workspace = true }
 ic_auth_types = { workspace = true }
 ring = "0.17"
-
-[dev-dependencies]
-const-hex = { workspace = true }

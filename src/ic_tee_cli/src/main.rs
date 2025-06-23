@@ -230,7 +230,7 @@ async fn main() -> Result<(), BoxError> {
             rng.fill_bytes(&mut bytes);
             match format.as_str() {
                 "hex" => {
-                    println!("{}", const_hex::encode(&bytes));
+                    println!("{}", hex::encode(&bytes));
                 }
                 "base64" => {
                     println!("{}", BASE64_URL_SAFE_NO_PAD.encode(&bytes));
@@ -291,10 +291,7 @@ async fn main() -> Result<(), BoxError> {
                 if let Ok(doc) = String::from_utf8(payload.clone()) {
                     println!("-----------:payload:-----------\n{}", doc);
                 } else {
-                    println!(
-                        "-----------:payload:-----------\n{}",
-                        const_hex::encode(&payload)
-                    );
+                    println!("-----------:payload:-----------\n{}", hex::encode(&payload));
                 }
             } else if *vetkey && res.payload.is_some() {
                 let (vk, _dpk) = cose.vetkey(&path).await?;
@@ -302,10 +299,7 @@ async fn main() -> Result<(), BoxError> {
                 if let Ok(doc) = String::from_utf8(payload.clone()) {
                     println!("-----------:payload:-----------\n{}", doc);
                 } else {
-                    println!(
-                        "-----------:payload:-----------\n{}",
-                        const_hex::encode(&payload)
-                    );
+                    println!("-----------:payload:-----------\n{}", hex::encode(&payload));
                 }
             } else {
                 pretty_println(&res)?;
@@ -507,6 +501,6 @@ where
 
 fn decode_hex(s: &str) -> Result<Vec<u8>, BoxError> {
     let s = s.replace("\\", "");
-    let rt = const_hex::decode(s.strip_prefix("0x").unwrap_or(&s))?;
+    let rt = hex::decode(s.strip_prefix("0x").unwrap_or(&s))?;
     Ok(rt)
 }

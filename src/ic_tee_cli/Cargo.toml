@@ -16,7 +16,7 @@ ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.
 candid = { workspace = true, features = ["value", "printer"] }
 serde_bytes = { workspace = true }
 tokio = { workspace = true }
-const-hex = { workspace = true }
+hex = { workspace = true }
 ic-agent = { workspace = true }
 ed25519-consensus = { workspace = true }
 ic_cose = { workspace = true }

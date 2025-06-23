@@ -2,7 +2,7 @@ import type { Principal } from '@dfinity/principal';
 import type { ActorMethod } from '@dfinity/agent';
 import type { IDL } from '@dfinity/candid';
 
-export type ChainArgs = { 'Upgrade' : UpgradeArgs } |
+export type CanArgs = { 'Upgrade' : UpgradeArgs } |
   { 'Init' : InitArgs };
 export interface Delegation {
   'pubkey' : Uint8Array | number[],

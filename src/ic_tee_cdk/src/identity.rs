@@ -39,7 +39,7 @@ mod tests {
         let kind = "NITRO";
         let seed = [8u8; 32];
         let user_key = canister_user_key(canister, kind, &seed, None).to_der();
-        println!("{:?}", const_hex::encode(user_key.as_slice()));
+        println!("{:?}", hex::encode(user_key.as_slice()));
         assert!(is_sub(&user_key, canister.as_slice()));
         assert!(is_sub(&user_key, kind.as_bytes()));
         assert!(!is_sub(&user_key, seed.as_slice()));

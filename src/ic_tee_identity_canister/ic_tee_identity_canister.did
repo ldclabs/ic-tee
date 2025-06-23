@@ -1,4 +1,4 @@
-type ChainArgs = variant { Upgrade : UpgradeArgs; Init : InitArgs };
+type CanArgs = variant { Upgrade : UpgradeArgs; Init : InitArgs };
 type Delegation = record {
   pubkey : blob;
   targets : opt vec principal;
@@ -23,7 +23,7 @@ type UpgradeArgs = record {
   session_expires_in_ms : opt nat64;
   name : opt text;
 };
-service : (opt ChainArgs) -> {
+service : (opt CanArgs) -> {
   get_delegation : (blob, blob, nat64) -> (Result) query;
   get_state : () -> (Result_1) query;
   sign_in : (text, blob) -> (Result_2);

@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn test_parse_and_verify() {
         let doc: &[u8] = include_bytes!("./test/attestation2.hex");
-        let doc = const_hex::decode(doc).unwrap();
+        let doc = hex::decode(doc).unwrap();
         let attestation = parse_and_verify(&doc).unwrap();
         println!("{:?}", attestation);
     }
