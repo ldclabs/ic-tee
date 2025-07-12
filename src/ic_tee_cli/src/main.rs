@@ -1,7 +1,6 @@
 use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use candid::{pretty::candid::value::pp_value, CandidType, IDLValue, Principal};
 use clap::{Parser, Subcommand};
-use ed25519_consensus::SigningKey;
 use ic_agent::{
     identity::{AnonymousIdentity, BasicIdentity, Secp256k1Identity},
     Identity,
@@ -178,13 +177,10 @@ async fn main() -> Result<(), BoxError> {
     match &cli.command {
         Some(Commands::IdentityNew { path }) => {
             let secret: [u8; 32] = rand_bytes();
-            let signing_key = SigningKey::from(secret);
-            let private_key = OctetString::new(signing_key.as_bytes())?;
-            let private_key = private_key.to_der()?;
-            let id = BasicIdentity::from_signing_key(signing_key);
+            let id = BasicIdentity::from_raw_key(&secret);
             let principal = id.sender()?;
             let oid = ObjectIdentifier::new("1.3.101.112").unwrap();
-
+            let private_key = OctetString::new(secret)?.to_der()?;
             let pk = PrivateKeyInfo {
                 algorithm: AlgorithmIdentifierRef {
                     oid,

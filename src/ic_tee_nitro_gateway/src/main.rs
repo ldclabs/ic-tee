@@ -4,7 +4,7 @@ use candid::Principal;
 use clap::Parser;
 use ic_agent::Identity;
 use ic_auth_types::ByteBufB64;
-use ic_auth_verifier::{basic_identity, new_basic_identity};
+use ic_auth_verifier::{new_basic_identity, BasicIdentity};
 use ic_cose::{client::CoseSDK, rand_bytes};
 use ic_cose_types::{
     types::{setting::CreateSettingInput, SettingPath},
@@ -161,7 +161,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
 
     let attestation = if is_dev {
         // use a fixed identity for local development
-        let id = basic_identity([8u8; 32]);
+        let id = BasicIdentity::from_raw_key(&[8u8; 32]);
         // jjn6g-sh75l-r3cxb-wxrkl-frqld-6p6qq-d4ato-wske5-op7s5-n566f-bqe
         tee_agent.set_basic_identity(id, SESSION_EXPIRES_IN_MS);
 
