@@ -19,13 +19,13 @@ RUN mv linux-amd64/dnsproxy ./ \
     && rm -rf linux-amd64 \
     && chmod +x dnsproxy
 
-RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.6.0/ic_tee_daemon
+RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.6.4/ic_tee_daemon
 RUN chmod +x ic_tee_daemon
 
 WORKDIR /build
 COPY src ./src
 COPY Cargo.toml Cargo.lock ./
-RUN cargo build --release --locked -p ic_tee_nitro_gateway
+RUN cargo build --release -p ic_tee_nitro_gateway
 
 FROM debian:bookworm-slim AS runtime
 

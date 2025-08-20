@@ -21,7 +21,7 @@ jobs:
         rustup target add wasm32-unknown-unknown
         cargo install ic-wasm
         mkdir -p out
-        cargo build --target wasm32-unknown-unknown --release --locked -p ic_tee_identity_canister
+        cargo build --target wasm32-unknown-unknown --release -p ic_tee_identity_canister
         for CAN in ic_tee_identity_canister
         do
           cp "target/wasm32-unknown-unknown/release/$CAN.wasm" out/
@@ -54,7 +54,7 @@ jobs:
         export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-s"
         for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_daemon ic_tee_cli
         do
-          cargo build --release --locked -p $PACK --target x86_64-unknown-linux-musl
+          cargo build --release -p $PACK --target x86_64-unknown-linux-musl
           cp "target/x86_64-unknown-linux-musl/release/$PACK" "out/"
           SHA256="$(sha256sum < "out/$PACK" | sed 's/ .*$//g')"
           echo $SHA256 > "out/$PACK.$SHA256.txt"
