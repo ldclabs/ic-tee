@@ -12,5 +12,6 @@ jobs:
       - uses: dfinity/setup-dfx@main
       - name: Run tests
         run: |
+          rustup update --no-self-update stable
           cargo clippy --verbose --all-targets --all-features
           cargo test --verbose --workspace --all-features -- --nocapture

@@ -20,7 +20,7 @@ strip = true
 opt-level = 's'
 
 [workspace.package]
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 repository = "https://github.com/ldclabs/ic-tee"
 keywords = ["tee", "canister", "icp", "nitro"]
@@ -55,16 +55,16 @@ serde_bytes = "0.11"
 sha2 = "0.10"
 sha3 = "0.10"
 ic-cdk = "0.18"
-ic-secp256k1 = { version = "0.1" }
-ic-ed25519 = { version = "0.2" }
-ic_auth_types = { version = "0.5" }
-ic_auth_verifier = { version = "0.5" }
-ic-stable-structures = "0.6"
+ic-secp256k1 = { version = "0.2" }
+ic-ed25519 = { version = "0.3" }
+ic_auth_types = { version = "0.6" }
+ic_auth_verifier = { version = "0.6" }
+ic-stable-structures = "0.7"
 ic-canister-sig-creation = "1"
 ic-certification = "3"
-ic-agent = "0.41"
-ic_cose_types = "0.8"
-ic_cose = "0.8"
+ic-agent = "0.42"
+ic_cose_types = "0.9"
+ic_cose = "0.9"
 coset = "0.3"
 x509-parser = { version = "0.17" }
 rand = "0.9"

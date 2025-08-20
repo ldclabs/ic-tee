@@ -19,6 +19,7 @@ pub fn split_vsock(addr: &str) -> Result<VsockAddr, String> {
     Ok(VsockAddr::new(cid, port))
 }
 
+#[allow(dead_code)]
 pub trait AddrInfo: Debug {
     fn local_addr(&self) -> Result<SocketAddr, io::Error>;
     fn get_original_dst(&self) -> Option<SocketAddr>;

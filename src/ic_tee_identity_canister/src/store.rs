@@ -36,7 +36,7 @@ thread_local! {
         StableCell::init(
             MEMORY_MANAGER.with_borrow(|m| m.get(STATE_MEMORY_ID)),
             Vec::new()
-        ).expect("failed to init STATE store")
+        )
     );
 }
 
@@ -66,9 +66,7 @@ pub mod state {
             STATE_STORE.with(|r| {
                 let mut buf = vec![];
                 into_writer(&(*h.borrow()), &mut buf).expect("failed to encode STATE_STORE data");
-                r.borrow_mut()
-                    .set(buf)
-                    .expect("failed to set STATE_STORE data");
+                r.borrow_mut().set(buf);
             });
         });
     }

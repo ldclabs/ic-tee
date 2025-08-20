@@ -88,7 +88,7 @@ pub fn sha384(data: &[u8]) -> [u8; 48] {
     hasher.finalize().into()
 }
 
-pub fn x509_cert(data: &[u8]) -> Result<X509Certificate, String> {
+pub fn x509_cert(data: &[u8]) -> Result<X509Certificate<'_>, String> {
     let (_rem, x509) = X509Certificate::from_der(data)
         .map_err(|err| format!("invalid X.509 certificate: {:?}", err))?;
     Ok(x509)

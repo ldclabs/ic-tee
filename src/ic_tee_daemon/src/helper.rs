@@ -20,6 +20,7 @@ pub fn split_vsock(addr: &str) -> Result<VsockAddr, String> {
 }
 
 pub trait AddrInfo: Debug {
+    #[allow(dead_code)]
     fn local_addr(&self) -> Result<SocketAddr, io::Error>;
     fn get_original_dst(&self) -> Option<SocketAddr>;
 }
