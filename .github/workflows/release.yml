@@ -42,7 +42,7 @@ jobs:
         path: out/*
   build-binary:
     runs-on: ubuntu-latest
-    container: clux/muslrust:1.86.0-stable
+    container: clux/muslrust:stable
     steps:
     - uses: actions/checkout@v4
     - uses: Swatinem/rust-cache@v2

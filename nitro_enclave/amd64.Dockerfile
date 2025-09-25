@@ -14,12 +14,12 @@ RUN mv supervisord_0.7.3_Linux_64-bit/supervisord ./ \
     && chmod +x supervisord
 
 # dnsproxy to provide DNS services inside the enclave
-RUN wget -qO- https://github.com/AdguardTeam/dnsproxy/releases/download/v0.75.4/dnsproxy-linux-amd64-v0.75.4.tar.gz | tar xvz
+RUN wget -qO- https://github.com/AdguardTeam/dnsproxy/releases/download/v0.76.1/dnsproxy-linux-amd64-v0.76.1.tar.gz | tar xvz
 RUN mv linux-amd64/dnsproxy ./ \
     && rm -rf linux-amd64 \
     && chmod +x dnsproxy
 
-RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.6.5/ic_tee_daemon
+RUN wget -O ic_tee_daemon https://github.com/ldclabs/ic-tee/releases/download/v0.6.6/ic_tee_daemon
 RUN chmod +x ic_tee_daemon
 
 WORKDIR /build
