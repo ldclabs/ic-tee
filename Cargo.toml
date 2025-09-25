@@ -20,7 +20,7 @@ strip = true
 opt-level = 's'
 
 [workspace.package]
-version = "0.6.5"
+version = "0.6.6"
 edition = "2021"
 repository = "https://github.com/ldclabs/ic-tee"
 keywords = ["tee", "canister", "icp", "nitro"]
@@ -65,8 +65,8 @@ ic-certification = "3"
 ic-agent = "0.44"
 ic_cose_types = "0.9"
 ic_cose = "0.9"
-coset = "0.3"
-x509-parser = { version = "0.17" }
+coset = "0.4"
+x509-parser = { version = "0.18" }
 rand = "0.9"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
