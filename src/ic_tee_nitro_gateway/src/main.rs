@@ -391,6 +391,7 @@ async fn start_public_server(
             async {
                 let listener = create_reuse_port_listener(addr).await?;
                 axum_server::from_tcp_rustls(listener.into_std()?, tls_config)
+                    .map_err(Box::new)?
                     .handle(handle.clone())
                     .serve(app.into_make_service())
                     .await?;
