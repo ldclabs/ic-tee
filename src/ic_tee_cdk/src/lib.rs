@@ -1,6 +1,5 @@
 use candid::{CandidType, Principal};
-use ciborium::into_writer;
-use ic_auth_types::ByteBufB64;
+use ic_auth_types::{deterministic_cbor_into_vec, ByteBufB64};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
 
@@ -16,9 +15,7 @@ where
 }
 
 pub fn to_cbor_bytes(obj: &impl Serialize) -> Vec<u8> {
-    let mut buf: Vec<u8> = Vec::new();
-    into_writer(obj, &mut buf).expect("failed to encode in CBOR format");
-    buf
+    deterministic_cbor_into_vec(obj).expect("failed to encode in CBOR format")
 }
 
 pub fn sha3_256_n<const N: usize>(array: [&[u8]; N]) -> [u8; 32] {

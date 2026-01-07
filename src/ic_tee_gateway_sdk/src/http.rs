@@ -21,7 +21,7 @@ use candid::{decode_args, encode_args, utils::ArgumentEncoder, CandidType, Princ
 use ciborium::from_reader;
 use http::header;
 use ic_auth_types::ByteBufB64;
-use ic_cose_types::to_cbor_bytes;
+use ic_tee_cdk::to_cbor_bytes;
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Serialize};
 

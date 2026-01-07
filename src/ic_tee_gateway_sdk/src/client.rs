@@ -35,9 +35,9 @@ use ic_cose_types::{
         k256::{secp256k1_verify_bip340, secp256k1_verify_ecdsa},
         sha3_256,
     },
-    to_cbor_bytes, CanisterCaller,
+    CanisterCaller,
 };
-use ic_tee_cdk::{AttestationRequest, TEEAppInformation, TEEAttestation};
+use ic_tee_cdk::{to_cbor_bytes, AttestationRequest, TEEAppInformation, TEEAttestation};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_bytes::{ByteArray, ByteBuf, Bytes};
 use std::sync::Arc;

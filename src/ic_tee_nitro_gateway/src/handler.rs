@@ -13,7 +13,7 @@ use ic_auth_verifier::envelope::{
     HEADER_IC_AUTH_SIGNATURE, HEADER_IC_AUTH_USER,
 };
 use ic_cose_types::{
-    format_error, to_cbor_bytes,
+    format_error,
     types::{ECDHInput, ECDHOutput, SettingPath},
 };
 use ic_tee_agent::{
@@ -25,7 +25,8 @@ use ic_tee_agent::{
     RPCRequest, RPCResponse,
 };
 use ic_tee_cdk::{
-    AttestationUserRequest, CanisterRequest, SignInParams, TEEAppInformation, TEEAttestation,
+    to_cbor_bytes, AttestationUserRequest, CanisterRequest, SignInParams, TEEAppInformation,
+    TEEAttestation,
 };
 use ic_tee_gateway_sdk::crypto;
 use ic_tee_nitro_attestation::AttestationRequest;
