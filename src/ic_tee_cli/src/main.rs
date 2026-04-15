@@ -34,7 +34,7 @@ use pkcs8::{
     },
     AlgorithmIdentifierRef, PrivateKeyInfo,
 };
-use rand::RngCore;
+use rand::Rng;
 use serde_bytes::ByteBuf;
 use std::{path::Path, sync::Arc, vec};
 
