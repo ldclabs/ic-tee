@@ -10,14 +10,14 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.6" }
-ic_tee_agent = { path = "../ic_tee_agent", version = "0.6" }
-ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.6" }
-ic_tee_gateway_sdk = { path = "../ic_tee_gateway_sdk", version = "0.6" }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.7" }
+ic_tee_agent = { path = "../ic_tee_agent", version = "0.7" }
+ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.7" }
+ic_tee_gateway_sdk = { path = "../ic_tee_gateway_sdk", version = "0.7" }
 axum = { workspace = true }
 axum-server = { workspace = true }
 clap = { workspace = true }
-ciborium = { workspace = true }
+cbor2 = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 candid = { workspace = true }

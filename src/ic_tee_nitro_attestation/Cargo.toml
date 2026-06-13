@@ -13,7 +13,7 @@ license.workspace = true
 candid = { workspace = true }
 lazy_static = { workspace = true }
 serde = { workspace = true }
-ciborium = { workspace = true }
+cbor2 = { workspace = true }
 sha2 = { workspace = true }
 coset = { workspace = true }
 x509-parser = { workspace = true, features = ["verify"] }

@@ -2,7 +2,7 @@ use candid::{
     utils::{encode_args, ArgumentEncoder},
     CandidType, Decode, Principal,
 };
-use ciborium::into_writer;
+use cbor2::to_writer;
 use ic_agent::{Agent, Identity};
 use ic_auth_types::{SignInResponse, SignedDelegation};
 use ic_auth_verifier::{
@@ -121,7 +121,7 @@ impl TEEAgent {
         session: BasicIdentity,
     ) -> Result<(), String> {
         let mut msg = vec![];
-        into_writer(&(&ns, &name, &self.identity.sender().unwrap()), &mut msg)
+        to_writer(&(&ns, &name, &self.identity.sender().unwrap()), &mut msg)
             .expect("failed to encode Delegations data");
         let sig = session.sign_arbitrary(&msg).unwrap();
         let pubkey = ByteBuf::from(session.public_key().unwrap());

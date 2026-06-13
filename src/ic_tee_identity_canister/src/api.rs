@@ -1,5 +1,5 @@
 use candid::Principal;
-use ciborium::from_reader;
+use cbor2::from_slice;
 use ic_auth_types::{Delegation, SignInResponse, SignedDelegation};
 use ic_auth_verifier::{user_public_key_from_der, verify_basic_sig};
 use ic_canister_sig_creation::delegation_signature_msg;
@@ -53,7 +53,7 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
         .map_err(|err| format!("challenge verification failed: {:?}", err))?;
 
     let req: AttestationUserRequest<SignInParams> =
-        from_reader(user_data.as_slice()).map_err(|err| format!("invalid user data: {:?}", err))?;
+        from_slice(user_data.as_slice()).map_err(|err| format!("invalid user data: {:?}", err))?;
     if req.method != "sign_in" {
         return Err("invalid attestation user request method".to_string());
     }

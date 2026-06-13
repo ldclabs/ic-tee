@@ -15,10 +15,10 @@ license.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.6" }
-ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.6" }
+ic_tee_cdk = { path = "../ic_tee_cdk", version = "0.7" }
+ic_tee_nitro_attestation = { path = "../ic_tee_nitro_attestation", version = "0.7" }
 candid = { workspace = true }
-ciborium = { workspace = true }
+cbor2 = { workspace = true }
 ic-cdk = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }

@@ -92,7 +92,7 @@ where
                 let body = Bytes::from_request(req, state)
                     .await
                     .map_err(IntoResponse::into_response)?;
-                let value: T = ciborium::from_reader(&body[..]).map_err(|err| {
+                let value: T = cbor2::from_slice(&body[..]).map_err(|err| {
                     Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
                         .into_response()
                 })?;
@@ -127,7 +127,7 @@ where
                 let body = Bytes::from_request(req, state)
                     .await
                     .map_err(IntoResponse::into_response)?;
-                let value: T = ciborium::from_reader(&body[..]).map_err(|err| {
+                let value: T = cbor2::from_slice(&body[..]).map_err(|err| {
                     Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
                         .into_response()
                 })?;
@@ -166,7 +166,7 @@ where
                 )
                     .into_response(),
             },
-            Self::CBOR(v, c) => match ciborium::into_writer(&v, &mut buf) {
+            Self::CBOR(v, c) => match cbor2::to_writer(&v, &mut buf) {
                 Ok(()) => (
                     c.unwrap_or_default(),
                     [(

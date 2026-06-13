@@ -1,4 +1,4 @@
-use ciborium::from_reader;
+use cbor2::from_slice;
 use ic_auth_types::cbor_into_vec;
 use ic_auth_types::ByteBufB64;
 use ic_cose::{
@@ -97,7 +97,7 @@ where
     T: DeserializeOwned,
 {
     let data = vetkey_decrypt_payload(vk, data)?;
-    from_reader(&data[..]).map_err(|err| {
+    from_slice(&data[..]).map_err(|err| {
         format!(
             "failed to decode VetKey decrypted payload to type {}: {:?}",
             std::any::type_name::<T>(),

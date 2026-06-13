@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use candid::decode_args;
-use ciborium::from_reader;
+use cbor2::from_slice;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use ic_auth_types::ByteBufB64;
 use ic_auth_verifier::envelope::{
@@ -268,7 +268,7 @@ pub async fn local_sign_attestation(
                 }
             }
 
-            let req: AttestationRequest = match from_reader(req.params.as_slice()) {
+            let req: AttestationRequest = match from_slice(req.params.as_slice()) {
                 Ok(req) => req,
                 Err(err) => {
                     return Content::Text::<()>(
@@ -280,7 +280,7 @@ pub async fn local_sign_attestation(
             };
 
             if let Some(user_data) = &req.user_data {
-                if from_reader::<AttestationUserRequest<SignInParams>, _>(user_data.as_slice())
+                if from_slice::<AttestationUserRequest<SignInParams>>(user_data.as_slice())
                     .is_ok()
                 {
                     return StatusCode::BAD_REQUEST.into_response();
@@ -505,7 +505,7 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
     match req.method.as_str() {
         "sign_http" => {
             let (digest,): (ByteArray<32>,) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let se = SignedEnvelope::sign_digest(
                 &app.tee_agent.get_identity(),
                 digest.into_array().into(),
@@ -521,49 +521,49 @@ fn handle_keys_request(req: &RPCRequest, app: &AppState) -> RPCResponse {
     match req.method.as_str() {
         "a256gcm_key" => {
             let params: (Vec<ByteBuf>,) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let res = app.a256gcm_key(params.0);
             Ok(to_cbor_bytes(&res).into())
         }
         "a256gcm_ecdh_key" => {
             let params: (Vec<ByteBuf>, ECDHInput) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let res = app.a256gcm_ecdh_key(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "ed25519_sign_message" => {
             let params: (Vec<ByteBuf>, ByteBuf) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let res = app.ed25519_sign_message(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "ed25519_public_key" => {
             let params: (Vec<ByteBuf>,) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let res = app.ed25519_public_key(params.0);
             Ok(to_cbor_bytes(&res).into())
         }
         "secp256k1_sign_message_bip340" => {
             let params: (Vec<ByteBuf>, ByteBuf) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let res = app.secp256k1_sign_message_bip340(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "secp256k1_sign_message_ecdsa" => {
             let params: (Vec<ByteBuf>, ByteBuf) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let res = app.secp256k1_sign_message_ecdsa(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "secp256k1_sign_digest_ecdsa" => {
             let params: (Vec<ByteBuf>, ByteBuf) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let res = app.secp256k1_sign_digest_ecdsa(params.0, &params.1);
             Ok(to_cbor_bytes(&res).into())
         }
         "secp256k1_public_key" => {
             let params: (Vec<ByteBuf>,) =
-                from_reader(req.params.as_slice()).map_err(format_error)?;
+                from_slice(req.params.as_slice()).map_err(format_error)?;
             let res = app.secp256k1_public_key(params.0);
             Ok(to_cbor_bytes(&res).into())
         }
@@ -659,7 +659,7 @@ mod tests {
             );
 
             let data = res.bytes().await.unwrap();
-            let res: CanisterResponse = from_reader(&data[..]).unwrap();
+            let res: CanisterResponse = from_slice(&data[..]).unwrap();
             assert!(res.is_ok());
             let res: (Result<StateInfo, String>,) = decode_args(&res.unwrap()).unwrap();
             let res = res.0.unwrap();
@@ -704,7 +704,7 @@ mod tests {
             );
 
             let data = res.bytes().await.unwrap();
-            let res: CanisterResponse = from_reader(&data[..]).unwrap();
+            let res: CanisterResponse = from_slice(&data[..]).unwrap();
             assert!(res.is_ok());
             let res: (Result<ECDHOutput<ByteBuf>, String>,) = decode_args(&res.unwrap()).unwrap();
             assert!(res.0.is_ok());
@@ -745,9 +745,9 @@ mod tests {
         );
 
         let data = res.bytes().await.unwrap();
-        let res: RPCResponse = from_reader(&data[..]).unwrap();
+        let res: RPCResponse = from_slice(&data[..]).unwrap();
         assert!(res.is_ok());
-        let res: ECDHOutput<ByteBuf> = from_reader(res.unwrap().as_slice()).unwrap();
+        let res: ECDHOutput<ByteBuf> = from_slice(res.unwrap().as_slice()).unwrap();
         let key = crypto::decrypt_ecdh(secret.to_bytes(), &res).unwrap();
         assert_eq!(key.len(), 32);
     }

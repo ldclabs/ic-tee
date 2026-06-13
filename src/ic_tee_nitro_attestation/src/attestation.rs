@@ -1,4 +1,4 @@
-use ciborium::from_reader;
+use cbor2::from_slice;
 use coset::{iana, Algorithm, CborSerializable, CoseSign1};
 use lazy_static::lazy_static;
 use ring::signature::{VerificationAlgorithm, ECDSA_P384_SHA384_FIXED};
@@ -38,7 +38,7 @@ pub fn parse(attestation_doc: &[u8]) -> Result<(CoseSign1, Attestation), String>
         .payload
         .as_ref()
         .map(|data| {
-            from_reader(data.as_slice())
+            from_slice(data.as_slice())
                 .map_err(|err| format!("invalid attestation document: {:?}", err))
         })
         .ok_or_else(|| "no payload in COSE sign1 token".to_string())??;

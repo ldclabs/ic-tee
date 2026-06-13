@@ -25,7 +25,7 @@
 
 use arc_swap::ArcSwap;
 use candid::{encode_args, utils::ArgumentEncoder, CandidType, Decode, Principal};
-use ciborium::from_reader;
+use cbor2::from_slice;
 use ic_agent::{Agent, Identity};
 use ic_auth_verifier::envelope::SignedEnvelope;
 use ic_cose::client::CoseSDK;
@@ -203,7 +203,7 @@ impl Client {
         loop {
             if let Ok(tee_info) = self.http.get(&self.endpoint_info).send().await {
                 let tee_info = tee_info.bytes().await?;
-                let tee_info: TEEAppInformation = from_reader(&tee_info[..])?;
+                let tee_info: TEEAppInformation = from_slice(&tee_info[..])?;
                 self.tee.store(Arc::new(Some(tee_info.clone())));
                 return Ok(tee_info);
             }
@@ -624,7 +624,7 @@ impl Client {
         let mut headers = http::HeaderMap::new();
         se.to_authorization(&mut headers)?;
         let res = cbor_rpc(&self.outer_http, endpoint, Some(headers), body).await?;
-        let res = from_reader(&res[..]).map_err(|e| HttpRPCError::ResultError {
+        let res = from_slice(&res[..]).map_err(|e| HttpRPCError::ResultError {
             endpoint: endpoint.to_string(),
             path: method.to_string(),
             error: e.to_string(),

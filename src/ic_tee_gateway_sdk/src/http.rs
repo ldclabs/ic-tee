@@ -18,7 +18,7 @@
 //! - [`cbor_rpc`]: Internal function for making CBOR-encoded HTTP requests
 
 use candid::{decode_args, encode_args, utils::ArgumentEncoder, CandidType, Principal};
-use ciborium::from_reader;
+use cbor2::from_slice;
 use http::header;
 use ic_auth_types::ByteBufB64;
 use ic_tee_cdk::to_cbor_bytes;
@@ -126,7 +126,7 @@ where
             path: method.to_string(),
             error: format!("{err:?}"),
         })?;
-    from_reader(&res[..]).map_err(|err| HttpRPCError::ResultError {
+    from_slice(&res[..]).map_err(|err| HttpRPCError::ResultError {
         endpoint: endpoint.to_string(),
         path: method.to_string(),
         error: format!("{err:?}"),
@@ -222,7 +222,7 @@ pub async fn cbor_rpc(
     }
 
     let data = res.bytes().await?;
-    let res: RPCResponse = from_reader(&data[..])?;
+    let res: RPCResponse = from_slice(&data[..])?;
     let res = res?;
     Ok(res)
 }
