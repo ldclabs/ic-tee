@@ -12,7 +12,7 @@ use ic_cose::{
     vetkeys::DerivedPublicKey,
 };
 use ic_cose_types::{
-    cose::{cose_aes256_key, encrypt0::cose_encrypt0, CborSerializable},
+    cose::{cose_aes256_key, encrypt0::cose_encrypt0},
     to_cbor_bytes,
     types::{
         setting::{CreateSettingInput, UpdateSettingPayloadInput},

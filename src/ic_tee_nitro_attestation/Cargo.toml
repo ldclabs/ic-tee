@@ -15,7 +15,7 @@ lazy_static = { workspace = true }
 serde = { workspace = true }
 cbor2 = { workspace = true }
 sha2 = { workspace = true }
-coset = { workspace = true }
+cose2 = { workspace = true }
 x509-parser = { workspace = true, features = ["verify"] }
 hex = { workspace = true }
 ic_auth_types = { workspace = true }

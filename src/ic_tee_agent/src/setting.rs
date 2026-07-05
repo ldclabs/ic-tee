@@ -8,7 +8,7 @@ use ic_cose::{
 use ic_cose_types::{
     cose::{
         encrypt0::{cose_decrypt0, cose_encrypt0},
-        get_cose_key_secret, CborSerializable, CoseKey,
+        get_cose_key_secret, CoseKey,
     },
     types::setting::SettingInfo,
 };

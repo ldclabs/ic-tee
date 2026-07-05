@@ -108,6 +108,7 @@ fn get_delegation(
             pubkey: session_key.into_vec().into(),
             expiration,
             targets: None,
+            permissions: None,
         },
         signature: signature.into(),
     })
