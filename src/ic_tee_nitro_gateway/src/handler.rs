@@ -1,10 +1,10 @@
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::{header, uri::Uri, HeaderMap, StatusCode, Version},
+    http::{header, uri::Uri, HeaderMap, HeaderValue, StatusCode, Version},
     response::IntoResponse,
 };
-use candid::decode_args;
+use candid::{decode_args, Principal};
 use cbor2::from_slice;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use ic_auth_types::ByteBufB64;
@@ -14,7 +14,8 @@ use ic_auth_verifier::envelope::{
 };
 use ic_cose_types::{
     format_error,
-    types::{ECDHInput, ECDHOutput, SettingPath},
+    types::{ECDHInput, SettingPath},
+    BoxError,
 };
 use ic_tee_agent::{
     agent::TEEAgent,
@@ -30,6 +31,7 @@ use ic_tee_cdk::{
 };
 use ic_tee_gateway_sdk::crypto;
 use ic_tee_nitro_attestation::AttestationRequest;
+use serde::de::DeserializeOwned;
 use serde_bytes::{ByteArray, ByteBuf};
 use std::sync::Arc;
 use structured_logger::unix_ms;
@@ -48,6 +50,8 @@ pub struct AppState {
     cose_namespace: String,
     identity_signing: bool,
     app_basic_token: Option<String>,
+    tee_id_header: HeaderValue,
+    tee_instance_header: HeaderValue,
 }
 
 impl AppState {
@@ -59,13 +63,15 @@ impl AppState {
         cose_namespace: String,
         identity_signing: bool,
         app_basic_token: Option<String>,
-    ) -> Self {
+    ) -> Result<Self, BoxError> {
         let http_client = Arc::new(
             hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
                 .build(HttpConnector::new()),
         );
+        let tee_id_header = HeaderValue::from_str(&info.id.to_text())?;
+        let tee_instance_header = HeaderValue::from_str(&info.instance)?;
 
-        Self {
+        Ok(Self {
             info,
             http_client,
             tee_agent,
@@ -74,11 +80,9 @@ impl AppState {
             cose_namespace,
             identity_signing,
             app_basic_token,
-        }
-    }
-
-    pub fn tee_agent(&self) -> Arc<TEEAgent> {
-        self.tee_agent.clone()
+            tee_id_header,
+            tee_instance_header,
+        })
     }
 
     pub fn valid_session(&self, headers: &HeaderMap) -> bool {
@@ -92,95 +96,18 @@ impl AppState {
         }
         true
     }
+}
 
-    pub fn a256gcm_key(&self, derivation_path: Vec<ByteBuf>) -> ByteArray<32> {
-        crypto::a256gcm_key(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-        )
-        .into()
-    }
-
-    pub fn a256gcm_ecdh_key(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-        ecdh: &ECDHInput,
-    ) -> ECDHOutput<ByteBuf> {
-        crypto::a256gcm_ecdh_key(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            ecdh,
-        )
-    }
-
-    pub fn ed25519_sign_message(&self, derivation_path: Vec<ByteBuf>, msg: &[u8]) -> ByteArray<64> {
-        crypto::ed25519_sign_message(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            msg,
-        )
-        .into()
-    }
-
-    pub fn ed25519_public_key(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-    ) -> (ByteArray<32>, ByteArray<32>) {
-        let (pk, code) = crypto::ed25519_public_key(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-        );
-        (pk.into(), code.into())
-    }
-
-    pub fn secp256k1_sign_message_bip340(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-        msg: &[u8],
-    ) -> ByteArray<64> {
-        crypto::secp256k1_sign_message_bip340(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            msg,
-        )
-        .into()
-    }
-
-    pub fn secp256k1_sign_message_ecdsa(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-        msg: &[u8],
-    ) -> ByteArray<64> {
-        crypto::secp256k1_sign_message_ecdsa(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            msg,
-        )
-        .into()
-    }
-
-    pub fn secp256k1_sign_digest_ecdsa(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-        msg_hash: &[u8],
-    ) -> ByteArray<64> {
-        crypto::secp256k1_sign_digest_ecdsa(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-            msg_hash,
-        )
-        .into()
-    }
-
-    pub fn secp256k1_public_key(
-        &self,
-        derivation_path: Vec<ByteBuf>,
-    ) -> (ByteArray<33>, ByteArray<32>) {
-        let (pk, code) = crypto::secp256k1_public_key(
-            &self.root_secret,
-            derivation_path.into_iter().map(|v| v.into_vec()).collect(),
-        );
-        (pk.into(), code.into())
+/// Returns the caller verified from the signed envelope in the headers,
+/// or the anonymous principal if there is no envelope.
+fn verify_caller(headers: &HeaderMap, tee_id: Principal) -> Result<Principal, String> {
+    match SignedEnvelope::from_authorization(headers)
+        .or_else(|| SignedEnvelope::from_headers(headers))
+    {
+        Some(se) => se
+            .verify(unix_ms(), Some(tee_id), None)
+            .map(|_| se.sender()),
+        None => Ok(ANONYMOUS_PRINCIPAL),
     }
 }
 
@@ -188,16 +115,7 @@ impl AppState {
 /// public_server: GET /.well-known/tee
 pub async fn get_information(State(app): State<AppState>, req: Request) -> impl IntoResponse {
     let mut info = app.info.as_ref().clone();
-    info.caller = if let Some(se) = SignedEnvelope::from_authorization(req.headers())
-        .or_else(|| SignedEnvelope::from_headers(req.headers()))
-    {
-        match se.verify(unix_ms(), Some(app.info.id), None) {
-            Ok(_) => se.sender(),
-            Err(_) => ANONYMOUS_PRINCIPAL,
-        }
-    } else {
-        ANONYMOUS_PRINCIPAL
-    };
+    info.caller = verify_caller(req.headers(), info.id).unwrap_or(ANONYMOUS_PRINCIPAL);
 
     match Content::from(req.headers()) {
         Content::CBOR(_, _) => Content::CBOR(info, None).into_response(),
@@ -208,44 +126,27 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
 /// local_server: GET /attestation
 /// public_server: GET /.well-known/attestation
 pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl IntoResponse {
-    let caller = if let Some(se) = SignedEnvelope::from_authorization(req.headers())
-        .or_else(|| SignedEnvelope::from_headers(req.headers()))
-    {
-        match se.verify(unix_ms(), Some(app.info.id), None) {
-            Ok(_) => se.sender(),
-            Err(_) => ANONYMOUS_PRINCIPAL,
-        }
-    } else {
-        ANONYMOUS_PRINCIPAL
-    };
-
+    let caller = verify_caller(req.headers(), app.info.id).unwrap_or(ANONYMOUS_PRINCIPAL);
     let res = sign_attestation(AttestationRequest {
         user_data: Some(ByteBufB64::from(caller.as_slice())),
         ..Default::default()
-    });
+    })
+    .await;
 
     match res {
         Err(err) => Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
             .into_response(),
-        Ok(doc) => match Content::from(req.headers()) {
-            Content::CBOR(_, _) => Content::CBOR(
-                TEEAttestation {
-                    kind: TEE_KIND.to_string(),
-                    attestation: doc.into(),
-                },
-                None,
-            )
-            .into_response(),
-            Content::JSON(_, _) => Content::JSON(
-                TEEAttestation {
-                    kind: TEE_KIND.to_string(),
-                    attestation: doc.into(),
-                },
-                None,
-            )
-            .into_response(),
-            _ => Content::Text::<()>(ByteBufB64::from(doc).to_string(), None).into_response(),
-        },
+        Ok(doc) => {
+            let attestation = TEEAttestation {
+                kind: TEE_KIND.to_string(),
+                attestation: doc.into(),
+            };
+            match Content::from(req.headers()) {
+                Content::CBOR(_, _) => Content::CBOR(attestation, None).into_response(),
+                Content::JSON(_, _) => Content::JSON(attestation, None).into_response(),
+                _ => Content::Text::<()>(attestation.attestation.to_string(), None).into_response(),
+            }
+        }
     }
 }
 
@@ -280,14 +181,13 @@ pub async fn local_sign_attestation(
             };
 
             if let Some(user_data) = &req.user_data {
-                if from_slice::<AttestationUserRequest<SignInParams>>(user_data.as_slice())
-                    .is_ok()
+                if from_slice::<AttestationUserRequest<SignInParams>>(user_data.as_slice()).is_ok()
                 {
                     return StatusCode::BAD_REQUEST.into_response();
                 }
             }
 
-            match sign_attestation(req) {
+            match sign_attestation(req).await {
                 Ok(doc) => Content::CBOR(
                     TEEAttestation {
                         kind: TEE_KIND.to_string(),
@@ -376,7 +276,7 @@ pub async fn local_call_keys(
 
     match ct {
         Content::CBOR(req, _) => {
-            let res = handle_keys_request(&req, &app);
+            let res = handle_keys_request(&req, &app.root_secret);
             Content::CBOR(res, None).into_response()
         }
         _ => StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response(),
@@ -425,21 +325,8 @@ pub async fn proxy(
         ));
     };
 
-    let caller = if let Some(se) = SignedEnvelope::from_authorization(req.headers())
-        .or_else(|| SignedEnvelope::from_headers(req.headers()))
-    {
-        match se.verify(unix_ms(), Some(app.info.id), None) {
-            Ok(_) => se.sender(),
-            Err(err) => {
-                return Err(Content::Text(
-                    err.to_string(),
-                    Some(StatusCode::UNAUTHORIZED),
-                ));
-            }
-        }
-    } else {
-        ANONYMOUS_PRINCIPAL
-    };
+    let caller = verify_caller(req.headers(), app.info.id)
+        .map_err(|err| Content::Text(err, Some(StatusCode::UNAUTHORIZED)))?;
 
     let headers = req.headers_mut();
     headers.remove(&header::FORWARDED);
@@ -460,24 +347,8 @@ pub async fn proxy(
             )
         })?,
     );
-    headers.insert(
-        &HEADER_IC_TEE_ID,
-        app.info.id.to_string().parse().map_err(|_| {
-            Content::Text(
-                "unexpected TEE ID".to_string(),
-                Some(StatusCode::BAD_REQUEST),
-            )
-        })?,
-    );
-    headers.insert(
-        &HEADER_IC_TEE_INSTANCE,
-        app.info.instance.parse().map_err(|_| {
-            Content::Text(
-                "unexpected TEE instance".to_string(),
-                Some(StatusCode::BAD_REQUEST),
-            )
-        })?,
-    );
+    headers.insert(&HEADER_IC_TEE_ID, app.tee_id_header.clone());
+    headers.insert(&HEADER_IC_TEE_INSTANCE, app.tee_instance_header.clone());
 
     let path = req.uri().path();
     let path_query = req
@@ -496,7 +367,7 @@ pub async fn proxy(
         Ok(res) => Ok(res.into_response()),
         Err(err) => Err(Content::Text(
             err.to_string(),
-            Some(StatusCode::BAD_REQUEST),
+            Some(StatusCode::BAD_GATEWAY),
         )),
     }
 }
@@ -504,8 +375,7 @@ pub async fn proxy(
 async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCResponse {
     match req.method.as_str() {
         "sign_http" => {
-            let (digest,): (ByteArray<32>,) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
+            let (digest,): (ByteArray<32>,) = decode_params(req)?;
             let se = SignedEnvelope::sign_digest(
                 &app.tee_agent.get_identity(),
                 digest.into_array().into(),
@@ -517,58 +387,62 @@ async fn handle_identity_request(req: &RPCRequest, app: &AppState) -> RPCRespons
     }
 }
 
-fn handle_keys_request(req: &RPCRequest, app: &AppState) -> RPCResponse {
-    match req.method.as_str() {
+fn handle_keys_request(req: &RPCRequest, root_secret: &[u8; 48]) -> RPCResponse {
+    let res = match req.method.as_str() {
         "a256gcm_key" => {
-            let params: (Vec<ByteBuf>,) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
-            let res = app.a256gcm_key(params.0);
-            Ok(to_cbor_bytes(&res).into())
+            let (path,): (Vec<ByteBuf>,) = decode_params(req)?;
+            let key = crypto::a256gcm_key(root_secret, into_path(path));
+            to_cbor_bytes(&ByteArray::new(key))
         }
         "a256gcm_ecdh_key" => {
-            let params: (Vec<ByteBuf>, ECDHInput) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
-            let res = app.a256gcm_ecdh_key(params.0, &params.1);
-            Ok(to_cbor_bytes(&res).into())
+            let (path, ecdh): (Vec<ByteBuf>, ECDHInput) = decode_params(req)?;
+            to_cbor_bytes(&crypto::a256gcm_ecdh_key(
+                root_secret,
+                into_path(path),
+                &ecdh,
+            ))
         }
         "ed25519_sign_message" => {
-            let params: (Vec<ByteBuf>, ByteBuf) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
-            let res = app.ed25519_sign_message(params.0, &params.1);
-            Ok(to_cbor_bytes(&res).into())
+            let (path, msg): (Vec<ByteBuf>, ByteBuf) = decode_params(req)?;
+            let sig = crypto::ed25519_sign_message(root_secret, into_path(path), &msg);
+            to_cbor_bytes(&ByteArray::new(sig))
         }
         "ed25519_public_key" => {
-            let params: (Vec<ByteBuf>,) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
-            let res = app.ed25519_public_key(params.0);
-            Ok(to_cbor_bytes(&res).into())
+            let (path,): (Vec<ByteBuf>,) = decode_params(req)?;
+            let (pk, code) = crypto::ed25519_public_key(root_secret, into_path(path));
+            to_cbor_bytes(&(ByteArray::new(pk), ByteArray::new(code)))
         }
         "secp256k1_sign_message_bip340" => {
-            let params: (Vec<ByteBuf>, ByteBuf) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
-            let res = app.secp256k1_sign_message_bip340(params.0, &params.1);
-            Ok(to_cbor_bytes(&res).into())
+            let (path, msg): (Vec<ByteBuf>, ByteBuf) = decode_params(req)?;
+            let sig = crypto::secp256k1_sign_message_bip340(root_secret, into_path(path), &msg);
+            to_cbor_bytes(&ByteArray::new(sig))
         }
         "secp256k1_sign_message_ecdsa" => {
-            let params: (Vec<ByteBuf>, ByteBuf) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
-            let res = app.secp256k1_sign_message_ecdsa(params.0, &params.1);
-            Ok(to_cbor_bytes(&res).into())
+            let (path, msg): (Vec<ByteBuf>, ByteBuf) = decode_params(req)?;
+            let sig = crypto::secp256k1_sign_message_ecdsa(root_secret, into_path(path), &msg);
+            to_cbor_bytes(&ByteArray::new(sig))
         }
         "secp256k1_sign_digest_ecdsa" => {
-            let params: (Vec<ByteBuf>, ByteBuf) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
-            let res = app.secp256k1_sign_digest_ecdsa(params.0, &params.1);
-            Ok(to_cbor_bytes(&res).into())
+            let (path, hash): (Vec<ByteBuf>, ByteBuf) = decode_params(req)?;
+            let sig = crypto::secp256k1_sign_digest_ecdsa(root_secret, into_path(path), &hash);
+            to_cbor_bytes(&ByteArray::new(sig))
         }
         "secp256k1_public_key" => {
-            let params: (Vec<ByteBuf>,) =
-                from_slice(req.params.as_slice()).map_err(format_error)?;
-            let res = app.secp256k1_public_key(params.0);
-            Ok(to_cbor_bytes(&res).into())
+            let (path,): (Vec<ByteBuf>,) = decode_params(req)?;
+            let (pk, code) = crypto::secp256k1_public_key(root_secret, into_path(path));
+            to_cbor_bytes(&(ByteArray::new(pk), ByteArray::new(code)))
         }
-        _ => Err(format!("unsupported method {}", req.method)),
-    }
+        _ => return Err(format!("unsupported method {}", req.method)),
+    };
+    Ok(res.into())
+}
+
+fn decode_params<T: DeserializeOwned>(req: &RPCRequest) -> Result<T, String> {
+    from_slice(req.params.as_slice()).map_err(format_error)
+}
+
+fn into_path(path: Vec<ByteBuf>) -> Vec<Vec<u8>> {
+    path.into_iter().map(ByteBuf::into_vec).collect()
 }
 
 fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInformation) -> bool {
@@ -610,7 +484,8 @@ fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInforma
             _ => return false,
         };
 
-        return path.ns == ns && path.subject == Some(info.id) && path.user_owned;
+        // the subject defaults to the caller, which is the TEE identity
+        return path.ns == ns && path.user_owned && path.subject.unwrap_or(info.id) == info.id;
     }
 
     false
@@ -619,11 +494,11 @@ fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInforma
 #[cfg(test)]
 mod tests {
     use super::*;
-    use candid::{decode_args, encode_args, Principal};
+    use candid::encode_args;
     use ic_cose::rand_bytes;
     use ic_cose_types::{
         cose::ecdh,
-        types::{state::StateInfo, ECDHOutput, SettingPath},
+        types::{state::StateInfo, ECDHOutput},
     };
     use ic_tee_agent::http::CONTENT_TYPE_CBOR;
     use ic_tee_cdk::CanisterResponse;
@@ -631,6 +506,82 @@ mod tests {
     static TEE_HOST: &str = "http://127.0.0.1:8080";
     // static TEE_ID: &str = "m6a24-ioo3h-wtn6z-rntjm-rkzgw-24nrf-2x6jb-znzpt-7uctp-akavf-yqe";
     static COSE_CANISTER: &str = "53cyg-yyaaa-aaaap-ahpua-cai";
+
+    #[test]
+    fn test_forbid_canister_request() {
+        let tee_id =
+            Principal::from_text("m6a24-ioo3h-wtn6z-rntjm-rkzgw-24nrf-2x6jb-znzpt-7uctp-akavf-yqe")
+                .unwrap();
+        let cose_canister = Principal::from_text(COSE_CANISTER).unwrap();
+        let info = TEEAppInformation {
+            id: tee_id,
+            instance: "i-test".to_string(),
+            name: "test".to_string(),
+            version: "0.0.0".to_string(),
+            kind: TEE_KIND.to_string(),
+            origin: "https://example.com".to_string(),
+            url: "https://example.com/.well-known/tee".to_string(),
+            pcr0: [0u8; 48].into(),
+            pcr1: [0u8; 48].into(),
+            pcr2: [0u8; 48].into(),
+            start_time_ms: 0,
+            identity_canister: Principal::from_text("e7tgb-6aaaa-aaaap-akqfa-cai").unwrap(),
+            cose_canister,
+            registration_canister: None,
+            caller: Principal::anonymous(),
+        };
+        let root_path = |subject: Option<Principal>| SettingPath {
+            ns: "_".to_string(),
+            user_owned: true,
+            subject,
+            key: b"root".to_vec().into(),
+            version: 0,
+        };
+        let vetkd_request = |path: SettingPath| CanisterRequest {
+            canister: cose_canister,
+            method: "vetkd_encrypted_key".to_string(),
+            params: encode_args((path, ByteArray::new([0u8; 48])))
+                .unwrap()
+                .into(),
+        };
+        let forbid = |req: &CanisterRequest| forbid_canister_request("_", req, &info);
+
+        assert!(forbid(&CanisterRequest {
+            canister: info.identity_canister,
+            method: "whoami".to_string(),
+            params: encode_args(()).unwrap().into(),
+        }));
+        assert!(forbid(&CanisterRequest {
+            canister: cose_canister,
+            method: "namespace_sign_delegation".to_string(),
+            params: encode_args(()).unwrap().into(),
+        }));
+        // the subject defaults to the caller, which is the TEE identity
+        assert!(forbid(&vetkd_request(root_path(None))));
+        assert!(forbid(&vetkd_request(root_path(Some(tee_id)))));
+        assert!(forbid(&CanisterRequest {
+            canister: cose_canister,
+            method: "vetkd_encrypted_key".to_string(),
+            params: encode_args(("invalid",)).unwrap().into(),
+        }));
+
+        assert!(!forbid(&vetkd_request(root_path(Some(
+            Principal::anonymous()
+        )))));
+        assert!(!forbid(&vetkd_request(SettingPath {
+            user_owned: false,
+            ..root_path(None)
+        })));
+        assert!(!forbid(&vetkd_request(SettingPath {
+            ns: "other".to_string(),
+            ..root_path(None)
+        })));
+        assert!(!forbid(&CanisterRequest {
+            canister: cose_canister,
+            method: "setting_get".to_string(),
+            params: encode_args((root_path(None),)).unwrap().into(),
+        }));
+    }
 
     #[tokio::test(flavor = "current_thread")]
     #[ignore]

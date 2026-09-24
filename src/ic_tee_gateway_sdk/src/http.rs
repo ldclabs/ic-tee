@@ -119,13 +119,7 @@ where
         params: &args,
     };
 
-    let res = cbor_rpc(client, endpoint, None, to_cbor_bytes(&req))
-        .await
-        .map_err(|err| HttpRPCError::ResultError {
-            endpoint: endpoint.to_string(),
-            path: method.to_string(),
-            error: format!("{err:?}"),
-        })?;
+    let res = post_cbor(client, endpoint, method, None, to_cbor_bytes(&req)).await?;
     from_slice(&res[..]).map_err(|err| HttpRPCError::ResultError {
         endpoint: endpoint.to_string(),
         path: method.to_string(),
@@ -155,31 +149,22 @@ where
     In: ArgumentEncoder,
     Out: CandidType + for<'a> candid::Deserialize<'a>,
 {
-    let args = encode_args(args).map_err(|e| HttpRPCError::RequestError {
-        endpoint: format!("{endpoint}/{canister}"),
-        path: method.to_string(),
-        error: format!("{e:?}"),
-    })?;
-    let res = cbor_rpc(
-        client,
-        endpoint,
-        None,
-        to_cbor_bytes(&CanisterRequest {
-            canister,
-            method,
-            params: &args,
-        }),
-    )
-    .await
-    .map_err(|err| HttpRPCError::ResultError {
+    let path = format!("{canister}/{method}");
+    let args = encode_args(args).map_err(|err| HttpRPCError::RequestError {
         endpoint: endpoint.to_string(),
-        path: method.to_string(),
+        path: path.clone(),
         error: format!("{err:?}"),
     })?;
-    let res: (Out,) = decode_args(&res).map_err(|e| HttpRPCError::ResultError {
-        endpoint: format!("{endpoint}/{canister}"),
-        path: method.to_string(),
-        error: format!("{e:?}"),
+    let body = to_cbor_bytes(&CanisterRequest {
+        canister,
+        method,
+        params: &args,
+    });
+    let res = post_cbor(client, endpoint, &path, None, body).await?;
+    let res: (Out,) = decode_args(&res).map_err(|err| HttpRPCError::ResultError {
+        endpoint: endpoint.to_string(),
+        path,
+        error: format!("{err:?}"),
     })?;
     Ok(res.0)
 }
@@ -200,8 +185,29 @@ pub async fn cbor_rpc(
     headers: Option<http::HeaderMap>,
     body: Vec<u8>,
 ) -> Result<ByteBufB64, BoxError> {
+    Ok(post_cbor(client, endpoint, "", headers, body).await?)
+}
+
+pub(crate) async fn post_cbor(
+    client: &Client,
+    endpoint: &str,
+    path: &str,
+    headers: Option<http::HeaderMap>,
+    body: Vec<u8>,
+) -> Result<ByteBufB64, HttpRPCError> {
+    let request_error = |error: String| HttpRPCError::RequestError {
+        endpoint: endpoint.to_string(),
+        path: path.to_string(),
+        error,
+    };
+    let result_error = |error: String| HttpRPCError::ResultError {
+        endpoint: endpoint.to_string(),
+        path: path.to_string(),
+        error,
+    };
+
     let mut headers = headers.unwrap_or_default();
-    let ct: http::HeaderValue = CONTENT_TYPE_CBOR.parse().unwrap();
+    let ct = http::HeaderValue::from_static(CONTENT_TYPE_CBOR);
     headers.insert(header::CONTENT_TYPE, ct.clone());
     headers.insert(header::ACCEPT, ct);
     let res = client
@@ -209,20 +215,22 @@ pub async fn cbor_rpc(
         .headers(headers)
         .body(body)
         .send()
-        .await?;
+        .await
+        .map_err(|err| request_error(err.to_string()))?;
     let status = res.status().as_u16();
     if status != 200 {
         return Err(HttpRPCError::ResponseError {
             endpoint: endpoint.to_string(),
-            path: "".to_string(),
+            path: path.to_string(),
             status,
             error: res.text().await.unwrap_or_default(),
-        }
-        .into());
+        });
     }
 
-    let data = res.bytes().await?;
-    let res: RPCResponse = from_slice(&data[..])?;
-    let res = res?;
-    Ok(res)
+    let data = res
+        .bytes()
+        .await
+        .map_err(|err| result_error(err.to_string()))?;
+    let res: RPCResponse = from_slice(&data[..]).map_err(|err| result_error(err.to_string()))?;
+    res.map_err(result_error)
 }

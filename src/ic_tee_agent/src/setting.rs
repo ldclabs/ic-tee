@@ -13,57 +13,42 @@ use ic_cose_types::{
     types::setting::SettingInfo,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::borrow::Cow;
 
 pub fn decrypt_payload(
     info: &SettingInfo,
     secret: &[u8; 32],
     aad: &[u8],
 ) -> Result<Vec<u8>, String> {
-    let secret = if let Some(dek) = &info.dek {
-        let key = cose_decrypt0(dek.as_slice(), secret, aad)?;
-        let key =
-            CoseKey::from_slice(&key).map_err(|err| format!("invalid COSE key: {:?}", err))?;
-        let secret2 = get_cose_key_secret(key)?;
-        if info.payload.is_none() {
-            // payload in dek
-            return Ok(secret2);
-        }
-        // get dek
-        let secret: [u8; 32] = secret2.try_into().map_err(|val: Vec<u8>| {
-            format!(
-                "invalid COSE secret from DEK, expected 32 bytes, got {}",
-                val.len()
-            )
-        })?;
-        Cow::Owned(secret)
-    } else {
-        Cow::Borrowed(secret)
+    let Some(dek) = &info.dek else {
+        let payload = info.payload.as_ref().ok_or("no payload")?;
+        return cose_decrypt0(payload.as_slice(), secret, aad);
     };
 
+    let key = decrypt_dek_secret(dek, secret, aad)?;
     match &info.payload {
-        None => Err("no payload".to_string()),
-        Some(payload) => cose_decrypt0(payload.as_slice(), secret.as_ref(), aad),
+        None => Ok(key), // payload in dek
+        Some(payload) => cose_decrypt0(payload.as_slice(), &to_dek(key)?, aad),
     }
 }
 
 pub fn decrypt_dek(info: &SettingInfo, secret: &[u8; 32], aad: &[u8]) -> Result<[u8; 32], String> {
-    if let Some(dek) = &info.dek {
-        let key = cose_decrypt0(dek.as_slice(), secret, aad)?;
-        let key =
-            CoseKey::from_slice(&key).map_err(|err| format!("invalid COSE key: {:?}", err))?;
-        let secret2 = get_cose_key_secret(key)?;
-        // get dek
-        let secret: [u8; 32] = secret2.try_into().map_err(|val: Vec<u8>| {
-            format!(
-                "invalid COSE secret from DEK, expected 32 bytes, got {}",
-                val.len()
-            )
-        })?;
-        Ok(secret)
-    } else {
-        Err("no DEK".to_string())
-    }
+    let dek = info.dek.as_ref().ok_or("no DEK")?;
+    to_dek(decrypt_dek_secret(dek, secret, aad)?)
+}
+
+fn decrypt_dek_secret(dek: &[u8], secret: &[u8; 32], aad: &[u8]) -> Result<Vec<u8>, String> {
+    let key = cose_decrypt0(dek, secret, aad)?;
+    let key = CoseKey::from_slice(&key).map_err(|err| format!("invalid COSE key: {:?}", err))?;
+    get_cose_key_secret(key)
+}
+
+fn to_dek(secret: Vec<u8>) -> Result<[u8; 32], String> {
+    secret.try_into().map_err(|val: Vec<u8>| {
+        format!(
+            "invalid COSE secret from DEK, expected 32 bytes, got {}",
+            val.len()
+        )
+    })
 }
 
 pub fn encrypt_payload(payload: &[u8], secret: &[u8; 32], aad: &[u8]) -> Result<Vec<u8>, String> {

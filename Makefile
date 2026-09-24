@@ -14,7 +14,7 @@ test:
 
 # cargo install ic-wasm
 build-wasm:
-	@cargo build --release --target wasm32-unknown-unknown --package ic_tee_identity_canister
+	@RUSTFLAGS='--cfg=getrandom_backend="custom"' cargo build --release --locked --target wasm32-unknown-unknown --package ic_tee_identity_canister
 
 # cargo install candid-extractor
 build-did:

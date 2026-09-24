@@ -8,7 +8,12 @@ export const idlFactory = ({ IDL }) => {
     'name' : IDL.Text,
   });
   const CanArgs = IDL.Variant({ 'Upgrade' : UpgradeArgs, 'Init' : InitArgs });
+  const DelegationPermissions = IDL.Variant({
+    'all' : IDL.Null,
+    'queries' : IDL.Null,
+  });
   const Delegation = IDL.Record({
+    'permissions' : IDL.Opt(DelegationPermissions),
     'pubkey' : IDL.Vec(IDL.Nat8),
     'targets' : IDL.Opt(IDL.Vec(IDL.Principal)),
     'expiration' : IDL.Nat64,

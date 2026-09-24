@@ -69,6 +69,31 @@ impl Content<()> {
     }
 }
 
+/// Reads a JSON or CBOR request body, returning the decoded value, the raw body,
+/// and whether it is CBOR.
+#[allow(clippy::result_large_err)] // same as the `FromRequest::Rejection` type
+async fn from_body<T, S>(req: Request, state: &S) -> Result<(T, Bytes, bool), Response>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    let is_cbor = match Content::from_content_type(req.headers()) {
+        Content::CBOR(_, _) => true,
+        Content::JSON(_, _) => false,
+        _ => return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()),
+    };
+    let body = Bytes::from_request(req, state)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    let value = if is_cbor {
+        cbor2::from_slice(&body[..]).map_err(|err| err.to_string())
+    } else {
+        serde_json::from_slice(&body).map_err(|err| err.to_string())
+    }
+    .map_err(|err| Content::Text::<()>(err, Some(StatusCode::BAD_REQUEST)).into_response())?;
+    Ok((value, body, is_cbor))
+}
+
 impl<S, T> FromRequest<S> for Content<T>
 where
     T: DeserializeOwned,
@@ -77,29 +102,12 @@ where
     type Rejection = Response;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        match Content::from_content_type(req.headers()) {
-            Content::JSON(_, _) => {
-                let body = Bytes::from_request(req, state)
-                    .await
-                    .map_err(IntoResponse::into_response)?;
-                let value: T = serde_json::from_slice(&body).map_err(|err| {
-                    Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
-                        .into_response()
-                })?;
-                Ok(Self::JSON(value, None))
-            }
-            Content::CBOR(_, _) => {
-                let body = Bytes::from_request(req, state)
-                    .await
-                    .map_err(IntoResponse::into_response)?;
-                let value: T = cbor2::from_slice(&body[..]).map_err(|err| {
-                    Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
-                        .into_response()
-                })?;
-                Ok(Self::CBOR(value, None))
-            }
-            _ => Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()),
-        }
+        let (value, _, is_cbor) = from_body(req, state).await?;
+        Ok(if is_cbor {
+            Self::CBOR(value, None)
+        } else {
+            Self::JSON(value, None)
+        })
     }
 }
 
@@ -111,32 +119,24 @@ where
     type Rejection = Response;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        match Content::from_content_type(req.headers()) {
-            Content::JSON(_, _) => {
-                let body = Bytes::from_request(req, state)
-                    .await
-                    .map_err(IntoResponse::into_response)?;
-                let value: T = serde_json::from_slice(&body).map_err(|err| {
-                    Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
-                        .into_response()
-                })?;
-                let hash = sha3_256(&body);
-                Ok(Self::JSON(value, hash))
-            }
-            Content::CBOR(_, _) => {
-                let body = Bytes::from_request(req, state)
-                    .await
-                    .map_err(IntoResponse::into_response)?;
-                let value: T = cbor2::from_slice(&body[..]).map_err(|err| {
-                    Content::Text::<String>(err.to_string(), Some(StatusCode::BAD_REQUEST))
-                        .into_response()
-                })?;
-                let hash = sha3_256(&body);
-                Ok(Self::CBOR(value, hash))
-            }
-            _ => Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()),
-        }
+        let (value, body, is_cbor) = from_body(req, state).await?;
+        let hash = sha3_256(&body);
+        Ok(if is_cbor {
+            Self::CBOR(value, hash)
+        } else {
+            Self::JSON(value, hash)
+        })
     }
+}
+
+fn encode<T: Serialize>(value: &T, is_cbor: bool) -> Result<Bytes, String> {
+    let mut buf = BytesMut::with_capacity(128).writer();
+    if is_cbor {
+        cbor2::to_writer(value, &mut buf).map_err(|err| err.to_string())?;
+    } else {
+        serde_json::to_writer(&mut buf, value).map_err(|err| err.to_string())?;
+    }
+    Ok(buf.into_inner().freeze())
 }
 
 impl<T> IntoResponse for Content<T>
@@ -144,64 +144,31 @@ where
     T: Serialize,
 {
     fn into_response(self) -> Response {
-        let mut buf = BytesMut::with_capacity(128).writer();
-        match self {
-            Self::JSON(v, c) => match serde_json::to_writer(&mut buf, &v) {
-                Ok(()) => (
-                    c.unwrap_or_default(),
-                    [(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_static(CONTENT_TYPE_JSON),
-                    )],
-                    buf.into_inner().freeze(),
-                )
-                    .into_response(),
-                Err(err) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    [(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_static(CONTENT_TYPE_TEXT),
-                    )],
-                    err.to_string(),
-                )
-                    .into_response(),
-            },
-            Self::CBOR(v, c) => match cbor2::to_writer(&v, &mut buf) {
-                Ok(()) => (
-                    c.unwrap_or_default(),
-                    [(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_static(CONTENT_TYPE_CBOR),
-                    )],
-                    buf.into_inner().freeze(),
-                )
-                    .into_response(),
-                Err(err) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    [(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_static(CONTENT_TYPE_TEXT),
-                    )],
-                    err.to_string(),
-                )
-                    .into_response(),
-            },
-            Self::Text(v, c) => (
-                c.unwrap_or_default(),
-                [(
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_static(CONTENT_TYPE_TEXT),
-                )],
-                v,
+        let (status, content_type, body) = match self {
+            Self::JSON(v, c) => (c, CONTENT_TYPE_JSON, encode(&v, false)),
+            Self::CBOR(v, c) => (c, CONTENT_TYPE_CBOR, encode(&v, true)),
+            Self::Text(v, c) => (c, CONTENT_TYPE_TEXT, Ok(Bytes::from(v))),
+            Self::Other(v, c) => (
+                Some(c.unwrap_or(StatusCode::UNSUPPORTED_MEDIA_TYPE)),
+                CONTENT_TYPE_TEXT,
+                Ok(Bytes::from(format!("Unsupported MIME type: {}", v))),
+            ),
+        };
+
+        match body {
+            Ok(body) => (
+                status.unwrap_or_default(),
+                [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
+                body,
             )
                 .into_response(),
-            Self::Other(v, c) => (
-                c.unwrap_or(StatusCode::UNSUPPORTED_MEDIA_TYPE),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
                 [(
                     header::CONTENT_TYPE,
                     HeaderValue::from_static(CONTENT_TYPE_TEXT),
                 )],
-                format!("Unsupported MIME type: {}", v),
+                err,
             )
                 .into_response(),
         }

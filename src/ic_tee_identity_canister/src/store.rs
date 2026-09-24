@@ -26,8 +26,7 @@ const STATE_MEMORY_ID: MemoryId = MemoryId::new(0);
 
 thread_local! {
     static STATE: RefCell<State> = RefCell::new(State::default());
-    static SIGNATURES : RefCell<SignatureMap> = RefCell::new(SignatureMap::default());
-
+    static SIGNATURES: RefCell<SignatureMap> = RefCell::new(SignatureMap::default());
 
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
         RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
@@ -52,23 +51,16 @@ pub mod state {
     }
 
     pub fn load() {
-        STATE_STORE.with(|r| {
-            STATE.with(|h| {
-                let v: State =
-                    from_slice(&r.borrow().get()[..]).expect("failed to decode STATE_STORE data");
-                *h.borrow_mut() = v;
-            });
+        let state: State = STATE_STORE.with_borrow(|r| {
+            from_slice(r.get().as_slice()).expect("failed to decode STATE_STORE data")
         });
+        STATE.set(state);
     }
 
     pub fn save() {
-        STATE.with(|h| {
-            STATE_STORE.with(|r| {
-                let mut buf = vec![];
-                to_writer(&(*h.borrow()), &mut buf).expect("failed to encode STATE_STORE data");
-                r.borrow_mut().set(buf);
-            });
-        });
+        let mut buf = vec![];
+        STATE.with_borrow(|s| to_writer(s, &mut buf).expect("failed to encode STATE_STORE data"));
+        STATE_STORE.with_borrow_mut(|r| r.set(buf));
     }
 
     pub fn add_signature(seed: &[u8], message: &[u8]) {

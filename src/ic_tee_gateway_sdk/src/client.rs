@@ -45,7 +45,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    http::{canister_rpc, cbor_rpc, http_rpc, HttpRPCError, RPCRequest, CONTENT_TYPE_CBOR},
+    http::{canister_rpc, http_rpc, post_cbor, HttpRPCError, RPCRequest, CONTENT_TYPE_CBOR},
     BoxError,
 };
 
@@ -148,7 +148,7 @@ impl ClientBuilder {
             .user_agent(self.user_agent.clone())
             .default_headers({
                 let mut headers = http::header::HeaderMap::with_capacity(3);
-                let ct: http::HeaderValue = CONTENT_TYPE_CBOR.parse().unwrap();
+                let ct = http::HeaderValue::from_static(CONTENT_TYPE_CBOR);
                 headers.insert(http::header::CONTENT_TYPE, ct.clone());
                 headers.insert(http::header::ACCEPT, ct);
                 if !self.basic_token.is_empty() {
@@ -161,7 +161,7 @@ impl ClientBuilder {
                 headers
             })
             .build()
-            .expect("Anda reqwest client should build");
+            .expect("reqwest client should build");
 
         let outer_http = self.outer_http.unwrap_or_else(|| {
             reqwest::Client::builder()
@@ -175,7 +175,7 @@ impl ClientBuilder {
                 .gzip(true)
                 .user_agent(self.user_agent)
                 .build()
-                .expect("Anda reqwest client should build")
+                .expect("reqwest client should build")
         });
 
         Client {
@@ -245,10 +245,7 @@ impl Client {
             &self.http,
             &self.endpoint_keys,
             "a256gcm_key",
-            &(derivation_path
-                .into_iter()
-                .map(ByteBuf::from)
-                .collect::<Vec<_>>(),),
+            &(path_bytes(derivation_path),),
         )
         .await?;
         Ok(res.into_array())
@@ -271,13 +268,7 @@ impl Client {
             &self.http,
             &self.endpoint_keys,
             "ed25519_sign_message",
-            &(
-                derivation_path
-                    .into_iter()
-                    .map(ByteBuf::from)
-                    .collect::<Vec<_>>(),
-                Bytes::new(message),
-            ),
+            &(path_bytes(derivation_path), Bytes::new(message)),
         )
         .await?;
         Ok(res.into_array())
@@ -317,10 +308,7 @@ impl Client {
             &self.http,
             &self.endpoint_keys,
             "ed25519_public_key",
-            &(derivation_path
-                .into_iter()
-                .map(ByteBuf::from)
-                .collect::<Vec<_>>(),),
+            &(path_bytes(derivation_path),),
         )
         .await?;
         Ok(res.0.into_array())
@@ -343,13 +331,7 @@ impl Client {
             &self.http,
             &self.endpoint_keys,
             "secp256k1_sign_message_bip340",
-            &(
-                derivation_path
-                    .into_iter()
-                    .map(ByteBuf::from)
-                    .collect::<Vec<_>>(),
-                Bytes::new(message),
-            ),
+            &(path_bytes(derivation_path), Bytes::new(message)),
         )
         .await?;
         Ok(res.into_array())
@@ -391,13 +373,7 @@ impl Client {
             &self.http,
             &self.endpoint_keys,
             "secp256k1_sign_message_ecdsa",
-            &(
-                derivation_path
-                    .into_iter()
-                    .map(ByteBuf::from)
-                    .collect::<Vec<_>>(),
-                Bytes::new(message),
-            ),
+            &(path_bytes(derivation_path), Bytes::new(message)),
         )
         .await?;
         Ok(res.into_array())
@@ -420,13 +396,7 @@ impl Client {
             &self.http,
             &self.endpoint_keys,
             "secp256k1_sign_digest_ecdsa",
-            &(
-                derivation_path
-                    .into_iter()
-                    .map(ByteBuf::from)
-                    .collect::<Vec<_>>(),
-                Bytes::new(message_hash),
-            ),
+            &(path_bytes(derivation_path), Bytes::new(message_hash)),
         )
         .await?;
         Ok(res.into_array())
@@ -466,10 +436,7 @@ impl Client {
             &self.http,
             &self.endpoint_keys,
             "secp256k1_public_key",
-            &(derivation_path
-                .into_iter()
-                .map(ByteBuf::from)
-                .collect::<Vec<_>>(),),
+            &(path_bytes(derivation_path),),
         )
         .await?;
         Ok(res.0.into_array())
@@ -569,19 +536,7 @@ impl Client {
         headers: Option<http::HeaderMap>,
         body: Option<Vec<u8>>, // default is empty
     ) -> Result<reqwest::Response, BoxError> {
-        let se = match self.identity {
-            Some(ref identity) => SignedEnvelope::sign_digest(identity, message_digest.into())?,
-            None => {
-                http_rpc(
-                    &self.http,
-                    &self.endpoint_identity,
-                    "sign_http",
-                    &(Bytes::new(&message_digest),),
-                )
-                .await?
-            }
-        };
-
+        let se = self.sign_envelope(message_digest).await?;
         let mut headers = headers.unwrap_or_default();
         se.to_authorization(&mut headers)?;
         self.https_call(url, method, Some(headers), body).await
@@ -608,22 +563,10 @@ impl Client {
             params: &params,
         };
         let body = to_cbor_bytes(&req);
-        let digest: [u8; 32] = sha3_256(&body);
-        let se = match self.identity {
-            Some(ref identity) => SignedEnvelope::sign_digest(identity, digest.into())?,
-            None => {
-                http_rpc(
-                    &self.http,
-                    &self.endpoint_identity,
-                    "sign_http",
-                    &(Bytes::new(&digest),),
-                )
-                .await?
-            }
-        };
+        let se = self.sign_envelope(sha3_256(&body)).await?;
         let mut headers = http::HeaderMap::new();
         se.to_authorization(&mut headers)?;
-        let res = cbor_rpc(&self.outer_http, endpoint, Some(headers), body).await?;
+        let res = post_cbor(&self.outer_http, endpoint, method, Some(headers), body).await?;
         let res = from_slice(&res[..]).map_err(|e| HttpRPCError::ResultError {
             endpoint: endpoint.to_string(),
             path: method.to_string(),
@@ -631,6 +574,10 @@ impl Client {
         })?;
         Ok(res)
     }
+}
+
+fn path_bytes(derivation_path: Vec<Vec<u8>>) -> Vec<ByteBuf> {
+    derivation_path.into_iter().map(ByteBuf::from).collect()
 }
 
 /// Implements the `CoseSDK` trait for TEEClient to enable IC-COSE canister API calls

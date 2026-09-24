@@ -1,5 +1,6 @@
 use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use candid::{pretty::candid::value::pp_value, CandidType, IDLValue, Principal};
+use cbor2::from_slice;
 use clap::{Parser, Subcommand};
 use ic_agent::{
     identity::{AnonymousIdentity, BasicIdentity, Secp256k1Identity},
@@ -13,7 +14,6 @@ use ic_cose::{
 };
 use ic_cose_types::{
     cose::{cose_aes256_key, encrypt0::cose_encrypt0},
-    to_cbor_bytes,
     types::{
         setting::{CreateSettingInput, UpdateSettingPayloadInput},
         SettingPath,
@@ -24,7 +24,7 @@ use ic_tee_agent::setting::{
     decrypt_dek, decrypt_payload, vetkey_decrypt_payload, vetkey_encrypt, vetkey_encrypt_payload,
     TLSPayload,
 };
-use ic_tee_cdk::canister_user_key;
+use ic_tee_cdk::{canister_user_key, TEEAttestation};
 use ic_tee_nitro_attestation::{parse, parse_and_verify};
 use pkcs8::{
     der::{
@@ -36,7 +36,7 @@ use pkcs8::{
 };
 use rand::Rng;
 use serde_bytes::ByteBuf;
-use std::{path::Path, sync::Arc, vec};
+use std::{io::Write, path::Path, sync::Arc, vec};
 
 static LOCAL_HOST: &str = "http://127.0.0.1:4943";
 static IC_HOST: &str = "https://icp-api.io";
@@ -93,7 +93,7 @@ pub enum Commands {
         #[arg(long, default_value = "NITRO")]
         kind: String,
 
-        /// TEE attestation document
+        /// TEE attestation document, hex or base64 (with "b64:" prefix) encoded
         #[arg(long)]
         doc: Option<String>,
 
@@ -147,7 +147,7 @@ pub enum Commands {
         vetkey: bool,
     },
 
-    /// save a tls certificate to the COSE canister
+    /// save a tls certificate to the COSE canister, encrypted with vetkey
     SettingSaveTLS {
         /// The setting's namespace
         #[arg(long)]
@@ -161,8 +161,8 @@ pub enum Commands {
         /// The certificate pem file
         #[arg(long)]
         cert_file: String,
-        /// Whether to use vetkey encryption
-        #[arg(long, default_value = "false")]
+        /// Deprecated, the TLS setting is always encrypted with vetkey
+        #[arg(long, hide = true)]
         vetkey: bool,
     },
 }
@@ -196,14 +196,16 @@ async fn main() -> Result<(), BoxError> {
             } else {
                 path.clone()
             };
-            let file = Path::new(&file).to_path_buf();
-            if file.try_exists().unwrap_or_default() {
-                Err(format!("file already exists: {:?}", file))?;
-            }
-
-            std::fs::write(&file, pem.as_bytes())?;
+            let file = Path::new(&file);
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create_new(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+            opts.open(file)
+                .map_err(|err| format!("failed to create file {:?}: {}", file, err))?
+                .write_all(pem.as_bytes())?;
             println!("principal: {}", principal);
-            println!("file: {}", file.to_str().unwrap());
+            println!("file: {}", file.display());
         }
 
         Some(Commands::IdentityDerive {
@@ -239,11 +241,21 @@ async fn main() -> Result<(), BoxError> {
 
         Some(Commands::TeeVerify { kind, doc, url }) => {
             let doc = match (doc, url) {
-                (Some(doc), None) => doc.to_owned(),
-                (None, Some(url)) => reqwest::get(url).await?.text().await?,
+                (Some(doc), None) => decode_doc(doc)?,
+                (None, Some(url)) => {
+                    let res = reqwest::Client::new()
+                        .get(url)
+                        .header(reqwest::header::ACCEPT, "application/cbor")
+                        .send()
+                        .await?
+                        .error_for_status()?
+                        .bytes()
+                        .await?;
+                    let res: TEEAttestation = from_slice(&res[..])?;
+                    res.attestation.into_vec()
+                }
                 _ => Err("doc or url is required".to_string())?,
             };
-            let doc = decode_hex(&doc)?;
             let mut error: Option<String> = None;
             let doc = match parse_and_verify(&doc) {
                 Ok(doc) => doc,
@@ -284,19 +296,11 @@ async fn main() -> Result<(), BoxError> {
                 let secret = cose.get_cose_encrypted_key(&path).await?;
                 let payload = decrypt_payload(&res, &secret, &[])?;
                 pretty_println(&res)?;
-                if let Ok(doc) = String::from_utf8(payload.clone()) {
-                    println!("-----------:payload:-----------\n{}", doc);
-                } else {
-                    println!("-----------:payload:-----------\n{}", hex::encode(&payload));
-                }
+                print_payload(&payload);
             } else if *vetkey && res.payload.is_some() {
                 let (vk, _dpk) = cose.vetkey(&path).await?;
                 let payload = vetkey_decrypt_payload(&vk, &res.payload.unwrap())?;
-                if let Ok(doc) = String::from_utf8(payload.clone()) {
-                    println!("-----------:payload:-----------\n{}", doc);
-                } else {
-                    println!("-----------:payload:-----------\n{}", hex::encode(&payload));
-                }
+                print_payload(&payload);
             } else {
                 pretty_println(&res)?;
             }
@@ -327,10 +331,7 @@ async fn main() -> Result<(), BoxError> {
             // create setting with version 0
             if path.version == 0 {
                 let (payload, dek) = if *vetkey {
-                    let dpk = cose.vetkd_public_key(&path).await?;
-                    let dpk = DerivedPublicKey::deserialize(&dpk).map_err(|err| {
-                        format!("failed to deserialize DerivedPublicKey: {:?}", err)
-                    })?;
+                    let dpk = derived_public_key(&cose, &path).await?;
                     let payload = vetkey_encrypt_payload(&dpk, &content, &path.key)?;
                     (Some(payload.into()), None)
                 } else {
@@ -359,9 +360,7 @@ async fn main() -> Result<(), BoxError> {
                     .await?;
                 pretty_println(&res)?;
             } else if *vetkey {
-                let dpk = cose.vetkd_public_key(&path).await?;
-                let dpk = DerivedPublicKey::deserialize(&dpk)
-                    .map_err(|err| format!("failed to deserialize DerivedPublicKey: {:?}", err))?;
+                let dpk = derived_public_key(&cose, &path).await?;
                 let payload = vetkey_encrypt_payload(&dpk, &content, &path.key)?;
                 let res = cose
                     .setting_update_payload(
@@ -397,7 +396,7 @@ async fn main() -> Result<(), BoxError> {
             subject,
             key_file,
             cert_file,
-            vetkey,
+            vetkey: _,
         }) => {
             let canister = Principal::from_text(&cli.canister)?;
             let subject = Principal::from_text(subject)?;
@@ -407,10 +406,6 @@ async fn main() -> Result<(), BoxError> {
                 crt: cert_data.as_bytes().to_vec().into(),
                 key: key_data.as_bytes().to_vec().into(),
             };
-            // call CryptoProvider::install_default() before this point
-            // let _ = RustlsConfig::from_pem(tls.crt.to_vec(), tls.key.to_vec())
-            //     .await
-            //     .map_err(|err| anyhow::anyhow!("read tls file failed: {:?}", err))?;
             let agent = Arc::new(build_agent(host, identity).await?);
             let cose = Client::new(agent.clone(), canister);
             let path = SettingPath {
@@ -420,38 +415,15 @@ async fn main() -> Result<(), BoxError> {
                 key: ByteBuf::from(SETTING_KEY_TLS.as_bytes()),
                 version: 0,
             };
-            let (payload, dek) = if *vetkey {
-                let dpk = cose.vetkd_public_key(&path).await?;
-                let dpk = DerivedPublicKey::deserialize(&dpk)
-                    .map_err(|err| format!("failed to deserialize DerivedPublicKey: {:?}", err))?;
-                let payload = vetkey_encrypt(&dpk, &tls, &path.key)?;
-                (Some(payload.into()), None)
-            } else {
-                let dek: [u8; 32] = rand_bytes();
-                let nonce: [u8; 12] = rand_bytes();
-                let payload = to_cbor_bytes(&tls);
-                let payload = cose_encrypt0(&payload, &dek, &[], &nonce, None)?;
-
-                let secret = cose.get_cose_encrypted_key(&path).await?;
-                let dek = cose_aes256_key(dek, path.key.to_vec());
-                let dek = dek.to_vec().unwrap();
-                let nonce: [u8; 12] = rand_bytes();
-                let dek = cose_encrypt0(&dek, &secret, &[], &nonce, None)?;
-                (Some(payload.into()), Some(dek.into()))
-            };
-
+            // ic_tee_nitro_gateway loads the TLS setting with vetkey
+            let dpk = derived_public_key(&cose, &path).await?;
+            let payload = vetkey_encrypt(&dpk, &tls, &path.key)?;
             let res = cose
                 .setting_create(
-                    &SettingPath {
-                        ns: ns.clone(),
-                        user_owned: false,
-                        subject: Some(subject),
-                        key: ByteBuf::from(SETTING_KEY_TLS.as_bytes()),
-                        version: 0,
-                    },
+                    &path,
                     &CreateSettingInput {
-                        dek,
-                        payload,
+                        dek: None,
+                        payload: Some(payload.into()),
                         desc: None,
                         status: None,
                         tags: None,
@@ -496,7 +468,32 @@ where
 }
 
 fn decode_hex(s: &str) -> Result<Vec<u8>, BoxError> {
-    let s = s.replace("\\", "");
+    let s = s.trim().replace("\\", "");
     let rt = hex::decode(s.strip_prefix("0x").unwrap_or(&s))?;
     Ok(rt)
+}
+
+// decodes an attestation document in hex or "b64:" prefixed base64
+fn decode_doc(s: &str) -> Result<Vec<u8>, BoxError> {
+    match s.trim().strip_prefix("b64:") {
+        Some(b64) => Ok(BASE64_URL_SAFE_NO_PAD.decode(b64.trim_end_matches('='))?),
+        None => decode_hex(s),
+    }
+}
+
+async fn derived_public_key(
+    cose: &Client,
+    path: &SettingPath,
+) -> Result<DerivedPublicKey, BoxError> {
+    let dpk = cose.vetkd_public_key(path).await?;
+    let dpk = DerivedPublicKey::deserialize(&dpk)
+        .map_err(|err| format!("failed to deserialize DerivedPublicKey: {:?}", err))?;
+    Ok(dpk)
+}
+
+fn print_payload(payload: &[u8]) {
+    match std::str::from_utf8(payload) {
+        Ok(doc) => println!("-----------:payload:-----------\n{}", doc),
+        Err(_) => println!("-----------:payload:-----------\n{}", hex::encode(payload)),
+    }
 }

@@ -22,4 +22,3 @@ target/
 .env
 .dfx
 .cargo
-Cargo.lock

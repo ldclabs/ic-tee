@@ -73,11 +73,13 @@ impl TEEAgent {
         self.identity.set(Box::new(id));
     }
 
+    /// Signs in to the identity canister with a TEE attestation.
+    /// Returns the expiration of the new identity in nanoseconds.
     pub async fn sign_in_with_attestation(
         &self,
         session: BasicIdentity,
         f: impl FnOnce() -> Result<(String, ByteBuf), String>,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         let (kind, attestation) = f()?;
 
         let (user_key, delegation) = {
@@ -102,6 +104,7 @@ impl TEEAgent {
                 .map_err(format_error)?;
             (user_key, res?)
         };
+        let expiration = delegation.delegation.expiration;
         let id = DelegatedIdentity::new(
             user_key,
             Box::new(session),
@@ -110,16 +113,17 @@ impl TEEAgent {
         .map_err(format_error)?;
 
         self.identity.set(Box::new(id));
-        Ok(())
+        Ok(expiration)
     }
 
-    // upgrade to a fixed identity derived from a name in a namespace on COSE canister
+    /// Upgrades to a fixed identity derived from a name in a namespace on COSE canister.
+    /// Returns the expiration of the new identity in nanoseconds.
     pub async fn cose_upgrade_identity(
         &self,
         ns: String,
         name: String,
         session: BasicIdentity,
-    ) -> Result<(), String> {
+    ) -> Result<u64, String> {
         let mut msg = vec![];
         to_writer(&(&ns, &name, &self.identity.sender().unwrap()), &mut msg)
             .expect("failed to encode Delegations data");
@@ -147,7 +151,7 @@ impl TEEAgent {
         .map_err(format_error)?;
 
         self.identity.set(Box::new(id));
-        Ok(())
+        Ok(res.expiration)
     }
 
     pub async fn update_call_raw(

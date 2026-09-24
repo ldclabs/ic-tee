@@ -25,7 +25,7 @@ use std::{
     time::{Duration, Instant},
 };
 use structured_logger::{async_json::new_writer, get_env_level, unix_ms, Builder};
-use tokio::{net::TcpStream, signal};
+use tokio::{net::TcpStream, signal, task::JoinError};
 use tokio_util::sync::CancellationToken;
 
 mod attestation;
@@ -46,6 +46,8 @@ static PUBLIC_HTTP_ADDR: &str = "127.0.0.1:8443";
 static LOG_TARGET: &str = "bootstrap";
 
 const PUBLIC_SERVER_GRACEFUL_DURATION: Duration = Duration::from_secs(10);
+const REFRESH_IDENTITY_MARGIN_MS: u64 = 1000 * 60 * 30;
+const NANOS_PER_MS: u64 = 1_000_000;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -62,13 +64,14 @@ struct Cli {
     #[clap(long)]
     cose_namespace: String,
 
-    /// default is 24 hours
+    /// session expiration of the fixed identity in local development, default is 24 hours.
+    /// Otherwise the expiration is determined by the identity canister or the COSE namespace.
     #[clap(long)]
     session_expires_in_ms: Option<u64>,
 
-    // id_scope should be "image" or "instance", default is "image"
+    /// id_scope should be "image" or "instance"
     #[clap(long, default_value = "image")]
-    id_scope: Option<String>,
+    id_scope: String,
 
     /// upgrade to a fixed identity derived from name in namespace on COSE canister
     #[clap(long)]
@@ -136,88 +139,34 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let start = Instant::now();
     let is_dev = cli.ic_host.starts_with("http://");
 
-    // https://github.com/rustls/rustls/issues/1938
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("failed to install rustls crypto provider");
-
     let identity_canister = Principal::from_text(cli.identity_canister)?;
     let cose_canister = Principal::from_text(cli.cose_canister)?;
-    let tee_agent = TEEAgent::new(&cli.ic_host, identity_canister, cose_canister).await?;
+    let tee_agent = Arc::new(TEEAgent::new(&cli.ic_host, identity_canister, cose_canister).await?);
 
     log::info!(target: LOG_TARGET,
         elapsed = start.elapsed().as_millis() as u64;
        "start with principal: {:?}", tee_agent.get_principal().to_text());
 
     let namespace = cli.cose_namespace;
-    let session_expires_in_ms = cli.session_expires_in_ms.unwrap_or(SESSION_EXPIRES_IN_MS);
-
-    let user_sign_in_req = to_cbor_bytes(&AttestationUserRequest {
-        method: "sign_in".to_string(),
-        params: Some(SignInParams {
-            id_scope: cli.id_scope.unwrap_or("image".to_string()),
+    let sign_in = SignIn {
+        tee_agent: tee_agent.clone(),
+        is_dev,
+        dev_session_expires_in_ms: cli.session_expires_in_ms.unwrap_or(SESSION_EXPIRES_IN_MS),
+        user_sign_in_req: to_cbor_bytes(&AttestationUserRequest {
+            method: "sign_in".to_string(),
+            params: Some(SignInParams {
+                id_scope: cli.id_scope,
+            }),
         }),
-    });
-
-    let attestation = if is_dev {
-        // use a fixed identity for local development
-        let id = BasicIdentity::from_raw_key(&[8u8; 32]);
-        // jjn6g-sh75l-r3cxb-wxrkl-frqld-6p6qq-d4ato-wske5-op7s5-n566f-bqe
-        tee_agent.set_basic_identity(id, SESSION_EXPIRES_IN_MS);
-
-        Attestation {
-            timestamp: unix_ms(),
-            module_id: "local_development".to_string(),
-            pcrs: BTreeMap::from([
-                (0usize, ByteBufB64::from([0u8; 48])),
-                (1, ByteBufB64::from([1u8; 48])),
-                (2, ByteBufB64::from([2u8; 48])),
-            ]),
-            ..Default::default()
-        }
-    } else {
-        let session = new_basic_identity();
-        let public_key = session.public_key().unwrap();
-        let sig = session.sign_arbitrary(&user_sign_in_req).unwrap();
-        log::info!(target: LOG_TARGET, "start to sign_in_with_attestation");
-        let doc = sign_attestation(AttestationRequest {
-            public_key: Some(public_key.into()),
-            user_data: Some(user_sign_in_req.clone().into()),
-            nonce: Some(sig.signature.unwrap().into()), // use signature as nonce for challenge
-        })?;
-
-        let attestation = parse_and_verify(doc.as_slice())?;
-        log::info!(target: LOG_TARGET,
-            elapsed = start.elapsed().as_millis() as u64;
-            "parse_and_verify attestation for sign in, module_id: {:?}", attestation.module_id);
-
-        tee_agent
-            .sign_in_with_attestation(session, || Ok((TEE_KIND.to_string(), doc.into())))
-            .await?;
-        attestation
+        namespace: namespace.clone(),
+        cose_identity_name: cli.cose_identity_name,
     };
 
+    let (attestation, expiration) = sign_in.sign_in().await?;
     log::info!(target: LOG_TARGET,
         elapsed = start.elapsed().as_millis() as u64;
-       "sign_in, principal: {:?}", tee_agent.get_principal().to_text());
+       "sign_in, module_id: {:?}, principal: {:?}", attestation.module_id, tee_agent.get_principal().to_text());
 
-    // upgrade to a permanent identity
-    let upgrade_identity = if let Some(ref name) = cli.cose_identity_name {
-        log::info!(target: LOG_TARGET, "start to cose_upgrade_identity");
-        let session = new_basic_identity();
-        tee_agent
-            .cose_upgrade_identity(namespace.clone(), name.clone(), session)
-            .await?;
-
-        log::info!(target: LOG_TARGET,
-            elapsed = start.elapsed().as_millis() as u64;
-            "upgrade to fixed identity, namespace: {}, name: {}, principal: {:?}", namespace, name, tee_agent.get_principal().to_text());
-        Some(name.clone())
-    } else {
-        None
-    };
-
-    let tee_agent = Arc::new(tee_agent);
     let principal = tee_agent.get_principal();
 
     log::info!(target: LOG_TARGET, "start to get_or_set_root_secret");
@@ -259,7 +208,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         namespace.clone(),
         cli.identity_signing.unwrap_or_default(),
         cli.app_basic_token.clone(),
-    );
+    )?;
     let local_server = tokio::spawn(start_local_server(
         local_app_state.clone(),
         start,
@@ -275,7 +224,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         String::new(),
         false,
         None,
-    );
+    )?;
 
     let tls_config = if is_dev {
         None
@@ -293,33 +242,132 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         tls_config,
     ));
 
-    let refresh_identity_future = refresh_identity(
-        global_cancel_token.clone(),
-        local_app_state,
-        session_expires_in_ms,
-        upgrade_identity,
-        namespace.clone(),
-        user_sign_in_req,
-    );
+    let refresh_identity_future =
+        refresh_identity(global_cancel_token.clone(), sign_in, expiration);
 
-    let _ = tokio::join!(
+    let (local_res, public_res, _, _) = tokio::join!(
         async {
-            if let Err(err) = local_server.await {
+            let res = server_result(local_server.await);
+            if let Err(err) = &res {
                 global_cancel_token.cancel();
                 log::error!(target: LOG_TARGET, "local server shutdown with error: {err:?}");
             }
+            res
         },
         async {
-            if let Err(err) = public_server.await {
+            let res = server_result(public_server.await);
+            if let Err(err) = &res {
                 global_cancel_token.cancel();
                 log::error!(target: LOG_TARGET, "public server shutdown with error: {err:?}");
             }
+            res
         },
         refresh_identity_future,
         shutdown_signal(global_cancel_token.clone()),
     );
 
-    Ok(())
+    local_res?;
+    public_res
+}
+
+fn server_result(res: Result<Result<(), BoxError>, JoinError>) -> Result<(), BoxError> {
+    res?
+}
+
+/// Signs in the TEE, shared by the bootstrap and the identity refresh.
+struct SignIn {
+    tee_agent: Arc<TEEAgent>,
+    is_dev: bool,
+    dev_session_expires_in_ms: u64,
+    user_sign_in_req: Vec<u8>,
+    namespace: String,
+    cose_identity_name: Option<String>,
+}
+
+impl SignIn {
+    /// Signs in to the identity canister with a fresh attestation (a fixed identity in local
+    /// development), then upgrades to the fixed identity on COSE canister if configured.
+    /// Returns the attestation and the expiration of the identity in nanoseconds.
+    async fn sign_in(&self) -> Result<(Attestation, u64), BoxError> {
+        let (attestation, mut expiration) = if self.is_dev {
+            // use a fixed identity for local development
+            let id = BasicIdentity::from_raw_key(&[8u8; 32]);
+            // jjn6g-sh75l-r3cxb-wxrkl-frqld-6p6qq-d4ato-wske5-op7s5-n566f-bqe
+            self.tee_agent
+                .set_basic_identity(id, self.dev_session_expires_in_ms);
+            let now_ms = unix_ms();
+            let attestation = Attestation {
+                timestamp: now_ms,
+                module_id: "local_development".to_string(),
+                pcrs: BTreeMap::from([
+                    (0usize, ByteBufB64::from([0u8; 48])),
+                    (1, ByteBufB64::from([1u8; 48])),
+                    (2, ByteBufB64::from([2u8; 48])),
+                ]),
+                ..Default::default()
+            };
+            (
+                attestation,
+                (now_ms + self.dev_session_expires_in_ms) * NANOS_PER_MS,
+            )
+        } else {
+            let session = new_basic_identity();
+            let public_key = session.public_key().ok_or("missing session public key")?;
+            let sig = session.sign_arbitrary(&self.user_sign_in_req)?;
+            let doc = sign_attestation(AttestationRequest {
+                public_key: Some(public_key.into()),
+                user_data: Some(self.user_sign_in_req.clone().into()),
+                // use signature as nonce for challenge
+                nonce: sig.signature.map(|v| v.into()),
+            })
+            .await?;
+            let attestation = parse_and_verify(doc.as_slice())?;
+            let expiration = self
+                .tee_agent
+                .sign_in_with_attestation(session, || Ok((TEE_KIND.to_string(), doc.into())))
+                .await?;
+            (attestation, expiration)
+        };
+
+        if let Some(name) = &self.cose_identity_name {
+            expiration = self.upgrade_identity(name).await?;
+            log::info!(target: LOG_TARGET,
+                "upgrade to fixed identity, namespace: {}, name: {}, principal: {:?}",
+                self.namespace, name, self.tee_agent.get_principal().to_text());
+        }
+
+        Ok((attestation, expiration))
+    }
+
+    /// Refreshes the identity before it expires and returns the new expiration in nanoseconds.
+    async fn refresh(&self) -> Result<u64, BoxError> {
+        if let Some(name) = &self.cose_identity_name {
+            // Upgrading with the current fixed identity keeps the principal unchanged during
+            // the refresh. It requires the fixed identity to be a delegator of the namespace:
+            // `dfx canister call ic_cose_canister namespace_add_delegator`
+            match self.upgrade_identity(name).await {
+                Ok(expiration) => return Ok(expiration),
+                Err(err) => {
+                    log::warn!(target: LOG_TARGET, "upgrade identity failed, sign in again: {:?}", err);
+                }
+            }
+        }
+
+        let (_, expiration) = self.sign_in().await?;
+        Ok(expiration)
+    }
+
+    async fn upgrade_identity(&self, name: &str) -> Result<u64, BoxError> {
+        let expiration = self
+            .tee_agent
+            .cose_upgrade_identity(
+                self.namespace.clone(),
+                name.to_string(),
+                new_basic_identity(),
+            )
+            .await?;
+        Ok(expiration)
+    }
 }
 
 async fn start_local_server(
@@ -423,67 +471,43 @@ async fn start_public_server(
     }
 }
 
-async fn refresh_identity(
-    cancel_token: CancellationToken,
-    local_app_state: handler::AppState,
-    session_expires_in_ms: u64,
-    upgrade_identity: Option<String>,
-    namespace: String,
-    user_sign_in_req: Vec<u8>,
-) {
-    // 24 hours - 30 minutes
-    let refresh_identity_ms = session_expires_in_ms - 1000 * 60 * 30;
-    // let refresh_identity_ms = 1000 * 60; // for test
+async fn refresh_identity(cancel_token: CancellationToken, sign_in: SignIn, mut expiration: u64) {
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
                 return;
             }
-            _ = tokio::time::sleep(Duration::from_millis(refresh_identity_ms)) => {}
+            _ = tokio::time::sleep(refresh_delay(expiration, unix_ms())) => {}
         };
 
         loop {
-            let session = new_basic_identity();
-            let public_key = session.public_key().unwrap();
-            let rt = match upgrade_identity {
-                Some(ref name) => {
-                    // remember to `dfx canister call ic_cose_canister namespace_add_delegator`
-                    local_app_state
-                        .tee_agent()
-                        .cose_upgrade_identity(namespace.clone(), name.clone(), session)
-                        .await
-                }
-                None => {
-                    local_app_state
-                        .tee_agent()
-                        .sign_in_with_attestation(session, || {
-                            match sign_attestation(AttestationRequest {
-                                public_key: Some(public_key.into()),
-                                user_data: Some(user_sign_in_req.clone().into()),
-                                nonce: None,
-                            }) {
-                                Ok(doc) => Ok((TEE_KIND.to_string(), doc.into())),
-                                Err(err) => Err(err.to_string()),
-                            }
-                        })
-                        .await
-                }
-            };
-
-            match rt {
-                Ok(()) => {
-                    log::info!(target: LOG_TARGET, "refresh identity, principal: {:?}", local_app_state
-                        .tee_agent().get_principal().to_text());
+            match sign_in.refresh().await {
+                Ok(exp) => {
+                    expiration = exp;
+                    log::info!(target: LOG_TARGET, "refresh identity, principal: {:?}",
+                        sign_in.tee_agent.get_principal().to_text());
                     break;
                 }
                 Err(err) => {
                     log::error!(target: LOG_TARGET, "refresh identity failed: {:?}", err);
                     // retry after 10 seconds
-                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    tokio::select! {
+                        _ = cancel_token.cancelled() => {
+                            return;
+                        }
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+                    };
                 }
             }
         }
     }
+}
+
+/// Refreshes the identity 30 minutes before it expires,
+/// or halfway through its remaining lifetime if that is shorter.
+fn refresh_delay(expiration_ns: u64, now_ms: u64) -> Duration {
+    let ttl_ms = (expiration_ns / NANOS_PER_MS).saturating_sub(now_ms);
+    Duration::from_millis(ttl_ms - (ttl_ms / 2).min(REFRESH_IDENTITY_MARGIN_MS))
 }
 
 async fn shutdown_signal(cancel_token: CancellationToken) {
@@ -507,6 +531,9 @@ async fn shutdown_signal(cancel_token: CancellationToken) {
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
+        _ = cancel_token.cancelled() => {
+            return;
+        }
     }
 
     log::warn!(target: LOG_TARGET, "received termination signal, starting graceful shutdown");
@@ -583,7 +610,7 @@ async fn get_tls(
         key: SETTING_KEY_TLS.as_bytes().to_vec().into(),
         ..Default::default()
     };
-    log::info!(target: LOG_TARGET, "start to get master_secret");
+    log::info!(target: LOG_TARGET, "start to get TLS vetkey");
     let (vk, _dpk) = tee_agent.vetkey(&path).await?;
     let setting = tee_agent.setting_get(&path).await;
     match setting {
@@ -612,4 +639,24 @@ async fn create_reuse_port_listener(addr: SocketAddr) -> Result<tokio::net::TcpL
     socket.bind(addr)?;
     let listener = socket.listen(1024)?;
     Ok(listener)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_refresh_delay() {
+        let now_ms = 1_000_000;
+        let day_ms = 1000 * 3600 * 24;
+        assert_eq!(
+            refresh_delay((now_ms + day_ms) * NANOS_PER_MS, now_ms),
+            Duration::from_millis(day_ms - REFRESH_IDENTITY_MARGIN_MS)
+        );
+        assert_eq!(
+            refresh_delay((now_ms + 1000 * 60 * 20) * NANOS_PER_MS, now_ms),
+            Duration::from_millis(1000 * 60 * 10)
+        );
+        assert_eq!(refresh_delay(0, now_ms), Duration::ZERO);
+    }
 }

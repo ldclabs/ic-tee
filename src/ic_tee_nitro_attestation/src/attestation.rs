@@ -1,8 +1,8 @@
 use cbor2::from_slice;
 use cose2::{iana, Error, Label, Sign1Message, Verifier};
-use lazy_static::lazy_static;
 use ring::signature::{VerificationAlgorithm, ECDSA_P384_SHA384_FIXED};
 use sha2::Sha384;
+use std::sync::LazyLock;
 use x509_parser::{pem::Pem, prelude::*};
 
 // https://github.com/aws/aws-nitro-enclaves-nsm-api/blob/main/docs/attestation_process.md
@@ -13,18 +13,14 @@ const ALG_ES384: Label = Label::Int(iana::AlgorithmES384);
 
 const ROOT_CERT_PEM: &[u8] = include_bytes!("./AWS_NitroEnclaves_Root-G1.pem");
 
-lazy_static! {
-    static ref ROOT_CERT_PUBKEY: Vec<u8> = {
-        let mut pems = Pem::iter_from_buffer(ROOT_CERT_PEM)
-            .collect::<Result<Vec<_>, _>>()
-            .expect("Failed to parse PEM buffer");
-        let pem = pems.pop().expect("No PEM blocks found");
-        let cert = pem.parse_x509().expect("Failed to parse X.509 certificate");
-        let pk = cert.public_key();
-        let pk = pk.subject_public_key.as_ref().to_vec();
-        pk
-    };
-}
+static ROOT_CERT_PUBKEY: LazyLock<Vec<u8>> = LazyLock::new(|| {
+    let mut pems = Pem::iter_from_buffer(ROOT_CERT_PEM)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("Failed to parse PEM buffer");
+    let pem = pems.pop().expect("No PEM blocks found");
+    let cert = pem.parse_x509().expect("Failed to parse X.509 certificate");
+    cert.public_key().subject_public_key.as_ref().to_vec()
+});
 
 pub fn parse(attestation_doc: &[u8]) -> Result<(Sign1Message, Attestation), String> {
     let cs1 = Sign1Message::from_slice(attestation_doc)
@@ -43,6 +39,15 @@ pub fn parse(attestation_doc: &[u8]) -> Result<(Sign1Message, Attestation), Stri
 
 pub fn parse_and_verify(attestation_doc: &[u8]) -> Result<Attestation, String> {
     let (cs1, doc) = parse(attestation_doc)?;
+    verify(&cs1, &doc)?;
+    Ok(doc)
+}
+
+/// Verifies the COSE signature of a parsed attestation document and its certificate chain,
+/// including that every certificate is valid at the document's timestamp.
+///
+/// `doc` must be the payload that [`parse`] decoded from `cs1`.
+pub fn verify(cs1: &Sign1Message, doc: &Attestation) -> Result<(), String> {
     let alg = cs1
         .protected
         .alg()
@@ -51,23 +56,29 @@ pub fn parse_and_verify(attestation_doc: &[u8]) -> Result<Attestation, String> {
         return Err(format!("unsupported COSE algorithm: {:?}", alg));
     }
 
-    let cert = x509_cert(&doc.certificate)?;
-    let pub_key = cert.public_key();
+    // leaf certificate first, root certificate last
+    let mut certs: Vec<X509Certificate> = Vec::with_capacity(doc.cabundle.len() + 1);
+    certs.push(x509_cert(&doc.certificate)?);
+    for pem in doc.cabundle.iter().rev() {
+        certs.push(x509_cert(pem)?);
+    }
 
+    let at = ASN1Time::from_timestamp((doc.timestamp / 1000) as i64)
+        .map_err(|err| format!("invalid attestation timestamp: {:?}", err))?;
+    for cert in &certs {
+        if !cert.validity().is_valid_at(at) {
+            return Err(format!(
+                "certificate {:?} is not valid at the attestation timestamp",
+                cert.subject()
+            ));
+        }
+    }
+
+    let pub_key = certs[0].public_key();
     cs1.verify(&Es384Verifier(pub_key.subject_public_key.as_ref()), None)
         .map_err(|_| "signature verification failed".to_string())?;
 
-    let mut certs: Vec<X509Certificate> = Vec::with_capacity(doc.cabundle.len());
-    for pem in &doc.cabundle {
-        let cert = x509_cert(pem)?;
-        certs.push(cert);
-    }
-    certs.push(cert);
-    certs.reverse();
-
-    verify_cert_chain(&certs)?;
-
-    Ok(doc)
+    verify_cert_chain(&certs)
 }
 
 /// A [`Verifier`] for COSE_Sign1 documents signed with ECDSA P-384 / SHA-384,
@@ -141,5 +152,17 @@ mod tests {
         let doc = hex::decode(doc).unwrap();
         let attestation = parse_and_verify(&doc).unwrap();
         println!("{:?}", attestation);
+    }
+
+    #[test]
+    fn test_verify_rejects_expired_certificate() {
+        let doc: &[u8] = include_bytes!("./test/attestation2.hex");
+        let doc = hex::decode(doc).unwrap();
+        let (cs1, mut attestation) = parse(&doc).unwrap();
+        assert!(verify(&cs1, &attestation).is_ok());
+
+        attestation.timestamp += 1000 * 3600 * 24 * 365;
+        let err = verify(&cs1, &attestation).unwrap_err();
+        assert!(err.contains("not valid at the attestation timestamp"));
     }
 }

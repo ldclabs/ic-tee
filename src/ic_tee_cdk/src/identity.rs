@@ -8,7 +8,7 @@ pub const SESSION_EXPIRES_IN_MS: u64 = 1000 * 3600 * 24; // 1 day
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct SignInParams {
-    pub id_scope: String, // should be "image" or "enclave"
+    pub id_scope: String, // should be "image" or "instance"
 }
 
 pub fn canister_user_key(
