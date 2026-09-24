@@ -28,11 +28,11 @@ use ic_tee_cdk::{canister_user_key, TEEAttestation};
 use ic_tee_nitro_attestation::{parse, parse_and_verify};
 use pkcs8::{
     der::{
-        asn1::{ObjectIdentifier, OctetString},
+        asn1::{ObjectIdentifier, OctetString, OctetStringRef},
         pem::LineEnding,
         Encode, EncodePem,
     },
-    AlgorithmIdentifierRef, PrivateKeyInfo,
+    AlgorithmIdentifierRef, PrivateKeyInfoRef,
 };
 use rand::Rng;
 use serde_bytes::ByteBuf;
@@ -181,12 +181,12 @@ async fn main() -> Result<(), BoxError> {
             let principal = id.sender()?;
             let oid = ObjectIdentifier::new("1.3.101.112").unwrap();
             let private_key = OctetString::new(secret)?.to_der()?;
-            let pk = PrivateKeyInfo {
+            let pk = PrivateKeyInfoRef {
                 algorithm: AlgorithmIdentifierRef {
                     oid,
                     parameters: None,
                 },
-                private_key: &private_key,
+                private_key: OctetStringRef::new(&private_key)?,
                 public_key: None,
             };
             let pem = pk.to_pem(LineEnding::LF)?;
