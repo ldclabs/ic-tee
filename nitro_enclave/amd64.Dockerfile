@@ -1,4 +1,4 @@
-# base image, pinned by digest for reproducible enclave measurements (PCRs)
+# Pin the Rust toolchain and base filesystem used by the builder.
 FROM rust:slim-bookworm@sha256:ff521445a372125ed4f76e1453a1f8098f2d05332d1601d30db1c1f62757e730 AS builder
 
 RUN apt-get update \

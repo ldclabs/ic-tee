@@ -10,4 +10,4 @@
 ## License
 Copyright © 2024-2025 [LDC Labs](https://github.com/ldclabs).
 
-`ldclabs/ic-tee` is licensed under the MIT License. See [LICENSE](../../LICENSE-MIT) for the full license text.
+This project is dual-licensed under the [MIT License](../../LICENSE-MIT) and [Apache License, Version 2.0](../../LICENSE-APACHE). You may use either license.

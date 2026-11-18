@@ -106,37 +106,41 @@ pub fn sha384(data: &[u8]) -> [u8; 48] {
 }
 
 pub fn x509_cert(data: &[u8]) -> Result<X509Certificate<'_>, String> {
-    let (_rem, x509) = X509Certificate::from_der(data)
+    let (remaining, x509) = X509Certificate::from_der(data)
         .map_err(|err| format!("invalid X.509 certificate: {:?}", err))?;
+    if !remaining.is_empty() {
+        return Err("unexpected data after X.509 certificate".to_string());
+    }
     Ok(x509)
 }
 
 pub fn verify_cert_chain(certs: &[X509Certificate]) -> Result<(), String> {
-    let mut iter = certs.iter().peekable();
-    while let Some(cert) = iter.next() {
-        if let Some(next_cert) = iter.peek() {
-            let issuer = cert.issuer();
-            let subject = next_cert.subject();
-            if issuer != subject {
-                return Err(format!(
-                    "certificate chain is broken: issuer {:?} != subject {:?}",
-                    issuer, subject
-                ));
-            }
-            cert.verify_signature(Some(next_cert.public_key()))
-                .map_err(|err| {
-                    format!(
-                        "signature verification failed for certificate {:?}: {:?}",
-                        cert.subject(),
-                        err
-                    )
-                })?;
-        } else if cert.public_key().subject_public_key.as_ref() != *ROOT_CERT_PUBKEY {
+    let root = certs.last().ok_or("empty certificate chain")?;
+    if root.public_key().subject_public_key.as_ref() != *ROOT_CERT_PUBKEY {
+        return Err(format!(
+            "certificate chain is broken: last certificate {:?} is not a root certificate",
+            root.subject()
+        ));
+    }
+
+    for pair in certs.windows(2) {
+        let cert = &pair[0];
+        let issuer = &pair[1];
+        if cert.issuer() != issuer.subject() || !issuer.is_ca() {
             return Err(format!(
-                "certificate chain is broken: last certificate {:?} is not a root certificate",
+                "invalid issuer {:?} for certificate {:?}",
+                issuer.subject(),
                 cert.subject()
             ));
         }
+        cert.verify_signature(Some(issuer.public_key()))
+            .map_err(|err| {
+                format!(
+                    "signature verification failed for certificate {:?}: {:?}",
+                    cert.subject(),
+                    err
+                )
+            })?;
     }
     Ok(())
 }
@@ -144,14 +148,14 @@ pub fn verify_cert_chain(certs: &[X509Certificate]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // https://github.com/briansmith/ring/issues/1942
-    // export C_INCLUDE_PATH="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/:$C_INCLUDE_PATH"
     #[test]
     fn test_parse_and_verify() {
-        let doc: &[u8] = include_bytes!("./test/attestation2.hex");
-        let doc = hex::decode(doc).unwrap();
-        let attestation = parse_and_verify(&doc).unwrap();
-        println!("{:?}", attestation);
+        for doc in [
+            include_bytes!("./test/attestation.hex").as_slice(),
+            include_bytes!("./test/attestation2.hex").as_slice(),
+        ] {
+            parse_and_verify(&hex::decode(doc).unwrap()).unwrap();
+        }
     }
 
     #[test]

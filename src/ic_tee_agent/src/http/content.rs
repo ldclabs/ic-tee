@@ -28,22 +28,40 @@ pub enum ContentWithSHA3<T> {
 
 impl Content<()> {
     pub fn from(headers: &HeaderMap<HeaderValue>) -> Self {
-        if let Some(accept) = headers.get(header::ACCEPT) {
-            if let Ok(accept) = accept.to_str() {
-                if accept.contains(CONTENT_TYPE_CBOR) {
-                    return Content::CBOR((), None);
-                }
-                if accept.contains(CONTENT_TYPE_JSON) {
-                    return Content::JSON((), None);
-                }
-                if accept.contains(CONTENT_TYPE_TEXT) {
-                    return Content::Text("".to_string(), None);
-                }
-                return Content::Other(accept.to_string(), None);
+        let mut best = (0.0, 0);
+        for media_type in headers
+            .get_all(header::ACCEPT)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(','))
+            .filter_map(|value| value.trim().parse::<mime::Mime>().ok())
+        {
+            let preference = match media_type.essence_str() {
+                value if value == CONTENT_TYPE_CBOR => 3,
+                value if value == CONTENT_TYPE_JSON => 2,
+                value if value == CONTENT_TYPE_TEXT => 1,
+                _ => continue,
+            };
+            let quality = media_type
+                .get_param("q")
+                .map_or(1.0, |value| value.as_str().parse::<f32>().unwrap_or(0.0));
+            if quality > 0.0 && quality <= 1.0 && (quality, preference) > best {
+                best = (quality, preference);
             }
         }
 
-        Content::Other("unknown".to_string(), None)
+        match best.1 {
+            3 => Content::CBOR((), None),
+            2 => Content::JSON((), None),
+            1 => Content::Text(String::new(), None),
+            _ => {
+                let accept = headers
+                    .get(header::ACCEPT)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("unknown");
+                Content::Other(accept.to_string(), None)
+            }
+        }
     }
 
     pub fn from_content_type(headers: &HeaderMap) -> Self {
@@ -172,5 +190,26 @@ where
             )
                 .into_response(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accept_uses_quality_and_exact_media_types() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT,
+            HeaderValue::from_static(
+                "application/cbor-seq, application/cbor;q=0, text/plain;q=0.5",
+            ),
+        );
+        headers.append(
+            header::ACCEPT,
+            HeaderValue::from_static("application/json;q=0.8"),
+        );
+        assert!(matches!(Content::from(&headers), Content::JSON(_, _)));
     }
 }

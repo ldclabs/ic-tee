@@ -36,7 +36,7 @@ use serde_bytes::{ByteArray, ByteBuf};
 use std::sync::Arc;
 use structured_logger::unix_ms;
 
-use crate::{attestation::sign_attestation, TEE_KIND};
+use crate::{attestation::sign_attestation, SETTING_KEY_TLS, TEE_KIND};
 
 type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 
@@ -101,12 +101,27 @@ impl AppState {
 /// Returns the caller verified from the signed envelope in the headers,
 /// or the anonymous principal if there is no envelope.
 fn verify_caller(headers: &HeaderMap, tee_id: Principal) -> Result<Principal, String> {
-    match SignedEnvelope::from_authorization(headers)
-        .or_else(|| SignedEnvelope::from_headers(headers))
-    {
+    let uses_icp_authorization = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split_ascii_whitespace().next())
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("ICP"));
+    let envelope = if uses_icp_authorization {
+        SignedEnvelope::from_authorization(headers)
+    } else {
+        SignedEnvelope::from_headers(headers)
+    };
+    match envelope {
         Some(se) => se
             .verify(unix_ms(), Some(tee_id), None)
             .map(|_| se.sender()),
+        None if uses_icp_authorization
+            || headers.contains_key(&HEADER_IC_AUTH_PUBKEY)
+            || headers.contains_key(&HEADER_IC_AUTH_SIGNATURE)
+            || headers.contains_key(&HEADER_IC_AUTH_DELEGATION) =>
+        {
+            Err("invalid ICP authentication headers".to_string())
+        }
         None => Ok(ANONYMOUS_PRINCIPAL),
     }
 }
@@ -117,10 +132,11 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
     let mut info = app.info.as_ref().clone();
     info.caller = verify_caller(req.headers(), info.id).unwrap_or(ANONYMOUS_PRINCIPAL);
 
-    match Content::from(req.headers()) {
+    let response = match Content::from(req.headers()) {
         Content::CBOR(_, _) => Content::CBOR(info, None).into_response(),
         _ => Content::JSON(info, None).into_response(),
-    }
+    };
+    ([(header::CACHE_CONTROL, "no-store")], response)
 }
 
 /// local_server: GET /attestation
@@ -133,7 +149,7 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
     })
     .await;
 
-    match res {
+    let response = match res {
         Err(err) => Content::Text::<()>(err.to_string(), Some(StatusCode::INTERNAL_SERVER_ERROR))
             .into_response(),
         Ok(doc) => {
@@ -147,7 +163,8 @@ pub async fn get_attestation(State(app): State<AppState>, req: Request) -> impl 
                 _ => Content::Text::<()>(attestation.attestation.to_string(), None).into_response(),
             }
         }
-    }
+    };
+    ([(header::CACHE_CONTROL, "no-store")], response)
 }
 
 /// local_server: POST /attestation
@@ -308,10 +325,9 @@ pub async fn local_call_identity(
 
 /// Handles all other public server requests and proxies them to the upstream service.
 ///
-/// If the request contains valid headers for `ic-tee-pubkey`, `ic-tee-content-digest`,
-/// `ic-tee-signature`, and `ic-tee-delegation`, they will be verified. Failed verification
-/// results in a 401 response. Successful verification adds `ic-tee-id` and `ic-tee-caller`
-/// headers to identify the caller. Otherwise, the request is treated as anonymous that without `ic-tee-caller` header.
+/// The gateway verifies ICP credentials and returns 401 if verification fails.
+/// It sets `ic-auth-user` to the verified or anonymous principal and adds
+/// `ic-tee-id` and `ic-tee-instance` before forwarding the request.
 pub async fn proxy(
     State(app): State<AppState>,
     mut req: Request,
@@ -329,12 +345,13 @@ pub async fn proxy(
         .map_err(|err| Content::Text(err, Some(StatusCode::UNAUTHORIZED)))?;
 
     let headers = req.headers_mut();
+    remove_connection_headers(headers);
     headers.remove(&header::FORWARDED);
     headers.remove(&HEADER_X_FORWARDED_FOR);
     headers.remove(&HEADER_X_FORWARDED_HOST);
     headers.remove(&HEADER_X_FORWARDED_PROTO);
     headers.remove(&HEADER_IC_AUTH_PUBKEY);
-    // headers.remove(&HEADER_IC_AUTH_CONTENT_DIGEST); keep it to verify the digest in upstream
+    // The upstream can compare the content digest with the received body.
     headers.remove(&HEADER_IC_AUTH_SIGNATURE);
     headers.remove(&HEADER_IC_AUTH_DELEGATION);
 
@@ -364,11 +381,39 @@ pub async fn proxy(
     *req.version_mut() = Version::HTTP_11;
 
     match app.http_client.request(req).await {
-        Ok(res) => Ok(res.into_response()),
+        Ok(mut res) => {
+            remove_connection_headers(res.headers_mut());
+            Ok(res.into_response())
+        }
         Err(err) => Err(Content::Text(
             err.to_string(),
             Some(StatusCode::BAD_GATEWAY),
         )),
+    }
+}
+
+fn remove_connection_headers(headers: &mut HeaderMap) {
+    let named_headers: Vec<_> = headers
+        .get_all(header::CONNECTION)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .filter_map(|name| header::HeaderName::from_bytes(name.trim().as_bytes()).ok())
+        .collect();
+    for name in named_headers {
+        headers.remove(name);
+    }
+    for name in [
+        "connection",
+        "keep-alive",
+        "proxy-connection",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "transfer-encoding",
+        "upgrade",
+    ] {
+        headers.remove(name);
     }
 }
 
@@ -396,11 +441,11 @@ fn handle_keys_request(req: &RPCRequest, root_secret: &[u8; 48]) -> RPCResponse 
         }
         "a256gcm_ecdh_key" => {
             let (path, ecdh): (Vec<ByteBuf>, ECDHInput) = decode_params(req)?;
-            to_cbor_bytes(&crypto::a256gcm_ecdh_key(
+            to_cbor_bytes(&crypto::try_a256gcm_ecdh_key(
                 root_secret,
                 into_path(path),
                 &ecdh,
-            ))
+            )?)
         }
         "ed25519_sign_message" => {
             let (path, msg): (Vec<ByteBuf>, ByteBuf) = decode_params(req)?;
@@ -484,8 +529,11 @@ fn forbid_canister_request(ns: &str, req: &CanisterRequest, info: &TEEAppInforma
             _ => return false,
         };
 
-        // the subject defaults to the caller, which is the TEE identity
-        return path.ns == ns && path.user_owned && path.subject.unwrap_or(info.id) == info.id;
+        // The subject defaults to the gateway's identity. Its user-owned keys
+        // and its namespace-owned TLS key are reserved for the gateway.
+        return path.ns == ns
+            && path.subject.unwrap_or(info.id) == info.id
+            && (path.user_owned || path.key.as_slice() == SETTING_KEY_TLS.as_bytes());
     }
 
     false
@@ -502,10 +550,46 @@ mod tests {
     };
     use ic_tee_agent::http::CONTENT_TYPE_CBOR;
     use ic_tee_cdk::CanisterResponse;
+    use ic_tee_gateway_sdk::client::ClientBuilder;
 
     static TEE_HOST: &str = "http://127.0.0.1:8080";
-    // static TEE_ID: &str = "m6a24-ioo3h-wtn6z-rntjm-rkzgw-24nrf-2x6jb-znzpt-7uctp-akavf-yqe";
     static COSE_CANISTER: &str = "53cyg-yyaaa-aaaap-ahpua-cai";
+
+    #[tokio::test]
+    async fn sdk_attestation_uses_the_gateway_wire_format() {
+        let router = axum::Router::new().route(
+            "/attestation",
+            axum::routing::post(|content: Content<RPCRequest>| async {
+                let Content::CBOR(request, _) = content else {
+                    panic!("expected CBOR request");
+                };
+                assert_eq!(request.method, "sign_attestation");
+                let request: AttestationRequest = from_slice(request.params.as_slice()).unwrap();
+                assert_eq!(request.nonce.unwrap().as_slice(), b"challenge");
+                Content::CBOR(
+                    TEEAttestation {
+                        kind: TEE_KIND.to_string(),
+                        attestation: ByteBufB64::from(b"document"),
+                    },
+                    None,
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let host = format!("http://{}/", listener.local_addr().unwrap());
+        let server = tokio::spawn(async { axum::serve(listener, router).await.unwrap() });
+        let client = ClientBuilder::default().with_tee_host(&host).build();
+        let result = client
+            .sign_attestation(ic_tee_cdk::AttestationRequest {
+                nonce: Some(ByteBufB64::from(b"challenge")),
+                ..Default::default()
+            })
+            .await;
+        server.abort();
+        let result = result.unwrap();
+        assert_eq!(result.kind, TEE_KIND);
+        assert_eq!(result.attestation.as_slice(), b"document");
+    }
 
     #[test]
     fn test_forbid_canister_request() {
@@ -559,6 +643,11 @@ mod tests {
         // the subject defaults to the caller, which is the TEE identity
         assert!(forbid(&vetkd_request(root_path(None))));
         assert!(forbid(&vetkd_request(root_path(Some(tee_id)))));
+        assert!(forbid(&vetkd_request(SettingPath {
+            user_owned: false,
+            key: SETTING_KEY_TLS.as_bytes().to_vec().into(),
+            ..root_path(None)
+        })));
         assert!(forbid(&CanisterRequest {
             canister: cose_canister,
             method: "vetkd_encrypted_key".to_string(),

@@ -32,14 +32,14 @@ jobs:
         ic-wasm --version
         "$WASM_OPT" --version
         mkdir -p out
-        RUSTFLAGS="--cfg=getrandom_backend=\"custom\"" cargo build --target wasm32-unknown-unknown --release --locked -p ic_tee_identity_canister
+        make build-wasm
         for CAN in ic_tee_identity_canister
         do
           cp "target/wasm32-unknown-unknown/release/$CAN.wasm" out/
           cp "src/$CAN/$CAN.did" "out/$CAN.did"
           WASM="out/$CAN.wasm"
-          ic-wasm $WASM -o $WASM metadata candid:service -f "out/$CAN.did" -v public
-          ic-wasm $WASM -o $WASM shrink
+          ic-wasm "$WASM" -o "$WASM" metadata candid:service -f "out/$CAN.did" -v public
+          ic-wasm "$WASM" -o "$WASM" shrink
           "$WASM_OPT" \
             -O3 \
             --enable-mutable-globals \
@@ -54,9 +54,9 @@ jobs:
             --inline-functions-with-loops \
             "$WASM" -o "$WASM.optimized"
           mv "$WASM.optimized" "$WASM"
-          gzip $WASM
+          gzip -n "$WASM"
           SHA256="$(sha256sum < "out/$CAN.wasm.gz" | sed 's/ .*$//g')"
-          echo $SHA256 > "out/$CAN.wasm.gz.$SHA256.txt"
+          echo "$SHA256" > "out/$CAN.wasm.gz.$SHA256.txt"
         done
         ls -lah out
     - name: Upload wasm artifacts
@@ -78,10 +78,10 @@ jobs:
         export RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-s"
         for PACK in ic_tee_nitro_gateway ic_tee_host_daemon ic_tee_daemon ic_tee_cli
         do
-          cargo build --release --locked -p $PACK --target x86_64-unknown-linux-musl
+          cargo build --release --locked -p "$PACK" --target x86_64-unknown-linux-musl
           cp "target/x86_64-unknown-linux-musl/release/$PACK" "out/"
           SHA256="$(sha256sum < "out/$PACK" | sed 's/ .*$//g')"
-          echo $SHA256 > "out/$PACK.$SHA256.txt"
+          echo "$SHA256" > "out/$PACK.$SHA256.txt"
         done
         ls -lah out
     - name: Upload binary artifacts
@@ -92,6 +92,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: [build-wasm, build-binary]
+    permissions:
+      contents: write
     steps:
     - name: Download wasm artifacts
       uses: actions/download-artifact@v4
@@ -105,16 +107,20 @@ jobs:
         path: out-binary
     - name: Get release tag
       id: get_tag
+      env:
+        RELEASE_TAG: ${{ inputs.tag }}
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+        if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
         else
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
         fi
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_tag.outputs.tag }}
+        target_commitish: ${{ github.sha }}
         name: Release ${{ steps.get_tag.outputs.tag }}
         draft: ${{ github.event_name == 'workflow_dispatch' }}
         files: |

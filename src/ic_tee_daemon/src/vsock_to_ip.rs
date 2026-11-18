@@ -31,7 +31,7 @@ pub async fn serve(listen_addr: VsockAddr, server_addr: &str) -> Result<()> {
 
 async fn transfer(mut inbound: VsockStream, server_addr: SocketAddr) -> Result<()> {
     let inbound_addr = inbound
-        .local_addr()
+        .peer_addr()
         .context("could not fetch inbound addr")?;
 
     log::info!(target: "vsock_to_ip", "proxying to {:?}", server_addr);

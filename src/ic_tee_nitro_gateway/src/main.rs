@@ -4,7 +4,9 @@ use candid::Principal;
 use clap::Parser;
 use ic_agent::Identity;
 use ic_auth_types::ByteBufB64;
-use ic_auth_verifier::{new_basic_identity, BasicIdentity};
+use ic_auth_verifier::{
+    get_expiration, new_basic_identity, AnonymousIdentity, AtomicIdentity, BasicIdentity,
+};
 use ic_cose::{client::CoseSDK, rand_bytes};
 use ic_cose_types::{
     types::{setting::CreateSettingInput, SettingPath},
@@ -66,11 +68,11 @@ struct Cli {
 
     /// session expiration of the fixed identity in local development, default is 24 hours.
     /// Otherwise the expiration is determined by the identity canister or the COSE namespace.
-    #[clap(long)]
+    #[clap(long, value_parser = clap::value_parser!(u64).range(1..))]
     session_expires_in_ms: Option<u64>,
 
     /// id_scope should be "image" or "instance"
-    #[clap(long, default_value = "image")]
+    #[clap(long, default_value = "image", value_parser = ["image", "instance"])]
     id_scope: String,
 
     /// upgrade to a fixed identity derived from name in namespace on COSE canister
@@ -137,7 +139,10 @@ async fn main() -> Result<(), BoxError> {
 
 async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let start = Instant::now();
-    let is_dev = cli.ic_host.starts_with("http://");
+    let is_dev = cli
+        .ic_host
+        .split_once(':')
+        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("http"));
 
     let identity_canister = Principal::from_text(cli.identity_canister)?;
     let cose_canister = Principal::from_text(cli.cose_canister)?;
@@ -162,7 +167,7 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         cose_identity_name: cli.cose_identity_name,
     };
 
-    let (attestation, expiration) = sign_in.sign_in().await?;
+    let (attestation, expiration) = sign_in.sign_in(&tee_agent).await?;
     log::info!(target: LOG_TARGET,
         elapsed = start.elapsed().as_millis() as u64;
        "sign_in, module_id: {:?}, principal: {:?}", attestation.module_id, tee_agent.get_principal().to_text());
@@ -179,10 +184,10 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         version: APP_VERSION.to_string(),
         kind: TEE_KIND.to_string(),
         origin: cli.origin.clone(),
-        url: format!("{}/.well-known/tee", cli.origin),
-        pcr0: attestation.pcrs.get(&0).cloned().unwrap(),
-        pcr1: attestation.pcrs.get(&1).cloned().unwrap(),
-        pcr2: attestation.pcrs.get(&2).cloned().unwrap(),
+        url: format!("{}/.well-known/tee", cli.origin.trim_end_matches('/')),
+        pcr0: attestation.pcrs.get(&0).cloned().ok_or("missing PCR0")?,
+        pcr1: attestation.pcrs.get(&1).cloned().ok_or("missing PCR1")?,
+        pcr2: attestation.pcrs.get(&2).cloned().ok_or("missing PCR2")?,
         start_time_ms: unix_ms(),
         identity_canister,
         cose_canister,
@@ -207,13 +212,8 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         None,
         namespace.clone(),
         cli.identity_signing.unwrap_or_default(),
-        cli.app_basic_token.clone(),
+        cli.app_basic_token,
     )?;
-    let local_server = tokio::spawn(start_local_server(
-        local_app_state.clone(),
-        start,
-        server_cancel_token.clone(),
-    ));
 
     // public server
     let public_app_state = handler::AppState::new(
@@ -235,8 +235,13 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
         Some(config)
     };
 
+    let local_server = tokio::spawn(start_local_server(
+        local_app_state,
+        start,
+        server_cancel_token.clone(),
+    ));
     let public_server = tokio::spawn(start_public_server(
-        public_app_state.clone(),
+        public_app_state,
         start,
         server_cancel_token.clone(),
         tls_config,
@@ -248,16 +253,16 @@ async fn bootstrap(cli: Cli) -> Result<(), BoxError> {
     let (local_res, public_res, _, _) = tokio::join!(
         async {
             let res = server_result(local_server.await);
+            global_cancel_token.cancel();
             if let Err(err) = &res {
-                global_cancel_token.cancel();
                 log::error!(target: LOG_TARGET, "local server shutdown with error: {err:?}");
             }
             res
         },
         async {
             let res = server_result(public_server.await);
+            global_cancel_token.cancel();
             if let Err(err) = &res {
-                global_cancel_token.cancel();
                 log::error!(target: LOG_TARGET, "public server shutdown with error: {err:?}");
             }
             res
@@ -288,13 +293,12 @@ impl SignIn {
     /// Signs in to the identity canister with a fresh attestation (a fixed identity in local
     /// development), then upgrades to the fixed identity on COSE canister if configured.
     /// Returns the attestation and the expiration of the identity in nanoseconds.
-    async fn sign_in(&self) -> Result<(Attestation, u64), BoxError> {
+    async fn sign_in(&self, tee_agent: &TEEAgent) -> Result<(Attestation, u64), BoxError> {
         let (attestation, mut expiration) = if self.is_dev {
             // use a fixed identity for local development
             let id = BasicIdentity::from_raw_key(&[8u8; 32]);
             // jjn6g-sh75l-r3cxb-wxrkl-frqld-6p6qq-d4ato-wske5-op7s5-n566f-bqe
-            self.tee_agent
-                .set_basic_identity(id, self.dev_session_expires_in_ms);
+            tee_agent.set_basic_identity(id, self.dev_session_expires_in_ms);
             let now_ms = unix_ms();
             let attestation = Attestation {
                 timestamp: now_ms,
@@ -308,7 +312,7 @@ impl SignIn {
             };
             (
                 attestation,
-                (now_ms + self.dev_session_expires_in_ms) * NANOS_PER_MS,
+                get_expiration(tee_agent.identity.as_ref()).ok_or("missing dev expiration")?,
             )
         } else {
             let session = new_basic_identity();
@@ -322,18 +326,19 @@ impl SignIn {
             })
             .await?;
             let attestation = parse_and_verify(doc.as_slice())?;
-            let expiration = self
-                .tee_agent
+            // Attestation sign-in is public and must also work after the previous delegation expires.
+            tee_agent.identity.set(Box::new(AnonymousIdentity));
+            let expiration = tee_agent
                 .sign_in_with_attestation(session, || Ok((TEE_KIND.to_string(), doc.into())))
                 .await?;
             (attestation, expiration)
         };
 
         if let Some(name) = &self.cose_identity_name {
-            expiration = self.upgrade_identity(name).await?;
+            expiration = self.upgrade_identity(tee_agent, name).await?;
             log::info!(target: LOG_TARGET,
                 "upgrade to fixed identity, namespace: {}, name: {}, principal: {:?}",
-                self.namespace, name, self.tee_agent.get_principal().to_text());
+                self.namespace, name, tee_agent.get_principal().to_text());
         }
 
         Ok((attestation, expiration))
@@ -341,25 +346,39 @@ impl SignIn {
 
     /// Refreshes the identity before it expires and returns the new expiration in nanoseconds.
     async fn refresh(&self) -> Result<u64, BoxError> {
-        if let Some(name) = &self.cose_identity_name {
-            // Upgrading with the current fixed identity keeps the principal unchanged during
-            // the refresh. It requires the fixed identity to be a delegator of the namespace:
-            // `dfx canister call ic_cose_canister namespace_add_delegator`
-            match self.upgrade_identity(name).await {
-                Ok(expiration) => return Ok(expiration),
+        let current = self.tee_agent.get_identity();
+        let principal = current.sender()?;
+        // Keep all intermediate delegations off the agent serving requests.
+        let mut pending = self.tee_agent.as_ref().clone();
+        pending.identity = Arc::new(AtomicIdentity::new(Box::new(current)));
+        pending.agent.set_arc_identity(pending.identity.clone());
+
+        let expiration = if let Some(name) = &self.cose_identity_name {
+            // This fast path requires the fixed identity to be a namespace delegator.
+            match self.upgrade_identity(&pending, name).await {
+                Ok(expiration) => expiration,
                 Err(err) => {
                     log::warn!(target: LOG_TARGET, "upgrade identity failed, sign in again: {:?}", err);
+                    self.sign_in(&pending).await?.1
                 }
             }
-        }
+        } else {
+            self.sign_in(&pending).await?.1
+        };
 
-        let (_, expiration) = self.sign_in().await?;
+        let identity = pending.get_identity();
+        if identity.sender()? != principal {
+            return Err("refreshed identity has a different principal".into());
+        }
+        if !pending.is_authenticated() {
+            return Err("refreshed identity has expired".into());
+        }
+        self.tee_agent.identity.set(Box::new(identity));
         Ok(expiration)
     }
 
-    async fn upgrade_identity(&self, name: &str) -> Result<u64, BoxError> {
-        let expiration = self
-            .tee_agent
+    async fn upgrade_identity(&self, tee_agent: &TEEAgent, name: &str) -> Result<u64, BoxError> {
+        let expiration = tee_agent
             .cose_upgrade_identity(
                 self.namespace.clone(),
                 name.to_string(),
@@ -396,16 +415,14 @@ async fn start_local_server(
 
     let addr: SocketAddr = LOCAL_HTTP_ADDR.parse()?;
 
-    let listener = create_reuse_port_listener(addr).await?;
+    let listener = create_reuse_port_listener(addr)?;
 
     log::warn!(target: LOG_TARGET,
                 elapsed = start.elapsed().as_millis() as u64;
                 "local {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            let _ = cancel_token.cancelled().await;
-        })
+        .with_graceful_shutdown(cancel_token.cancelled_owned())
         .await?;
     Ok(())
 }
@@ -426,46 +443,35 @@ async fn start_public_server(
             "/.well-known/attestation",
             routing::get(handler::get_attestation),
         )
-        .route("/{*any}", routing::any(handler::proxy))
+        .fallback(handler::proxy)
         .with_state(app_state);
     let addr: SocketAddr = PUBLIC_HTTP_ADDR.parse()?;
+    let listener = create_reuse_port_listener(addr)?;
     if let Some(tls_config) = tls_config {
         log::warn!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
             "public {}@{} listening on {:?} with TLS", APP_NAME, APP_VERSION, addr);
 
         let handle = axum_server::Handle::new();
-        let res = tokio::join!(
-            async {
-                let listener = create_reuse_port_listener(addr).await?;
-                axum_server::from_tcp_rustls(listener.into_std()?, tls_config)
-                    .map_err(Box::new)?
-                    .handle(handle.clone())
-                    .serve(app.into_make_service())
-                    .await?;
-                Result::<(), BoxError>::Ok(())
-            },
-            async {
-                let _ = cancel_token.cancelled().await;
+        let server = axum_server::from_tcp_rustls(listener.into_std()?, tls_config)?
+            .handle(handle.clone())
+            .serve(app.into_make_service());
+        tokio::pin!(server);
+        tokio::select! {
+            result = &mut server => result?,
+            _ = cancel_token.cancelled() => {
                 handle.graceful_shutdown(Some(PUBLIC_SERVER_GRACEFUL_DURATION));
-
-                Result::<(), BoxError>::Ok(())
+                server.await?;
             }
-        );
-        res.0?;
-        res.1?;
-
+        }
         Ok(())
     } else {
         log::warn!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
             "public {}@{} listening on {:?}", APP_NAME, APP_VERSION, addr);
 
-        let listener = create_reuse_port_listener(addr).await?;
         axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                let _ = cancel_token.cancelled().await;
-            })
+            .with_graceful_shutdown(cancel_token.cancelled_owned())
             .await?;
         Ok(())
     }
@@ -481,7 +487,11 @@ async fn refresh_identity(cancel_token: CancellationToken, sign_in: SignIn, mut 
         };
 
         loop {
-            match sign_in.refresh().await {
+            let refreshed = tokio::select! {
+                _ = cancel_token.cancelled() => return,
+                result = sign_in.refresh() => result,
+            };
+            match refreshed {
                 Ok(exp) => {
                     expiration = exp;
                     log::info!(target: LOG_TARGET, "refresh identity, principal: {:?}",
@@ -561,7 +571,7 @@ async fn get_or_set_root_secret(
     log::info!(target: LOG_TARGET,
             elapsed = start.elapsed().as_millis() as u64;
             "get master_secret");
-    let setting = tee_agent.setting_get(&path).await;
+    let setting = tee_agent.setting_get_consensus(&path).await;
     let setting = match setting {
         Ok(setting) => setting,
         Err(err) => {
@@ -586,7 +596,7 @@ async fn get_or_set_root_secret(
             }
 
             // fetch again
-            tee_agent.setting_get(&path).await?
+            tee_agent.setting_get_consensus(&path).await?
         }
     };
 
@@ -612,7 +622,7 @@ async fn get_tls(
     };
     log::info!(target: LOG_TARGET, "start to get TLS vetkey");
     let (vk, _dpk) = tee_agent.vetkey(&path).await?;
-    let setting = tee_agent.setting_get(&path).await;
+    let setting = tee_agent.setting_get_consensus(&path).await;
     match setting {
         Ok(setting) => {
             log::info!(target: LOG_TARGET,
@@ -629,7 +639,7 @@ async fn get_tls(
     }
 }
 
-async fn create_reuse_port_listener(addr: SocketAddr) -> Result<tokio::net::TcpListener, BoxError> {
+fn create_reuse_port_listener(addr: SocketAddr) -> Result<tokio::net::TcpListener, BoxError> {
     let socket = match &addr {
         SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
         SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,

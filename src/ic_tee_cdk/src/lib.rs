@@ -48,7 +48,7 @@ pub struct TEEAppInformation {
     pub version: String,
     pub kind: String,
     pub origin: String, // (e.g. https://DOMAIN)
-    pub url: String,    // (e.g. https://DOMAIN/.well-known/tee.json)
+    pub url: String,    // (e.g. https://DOMAIN/.well-known/tee)
     pub pcr0: ByteBufB64,
     pub pcr1: ByteBufB64,
     pub pcr2: ByteBufB64,

@@ -1,9 +1,7 @@
 //! IC TEE Gateway Service Client Implementation
 //!
 //! This module provides a client for interacting with IC TEE Gateway services,
-//! offering cryptographic operations and secure communication capabilities. The TEEClient implements
-//! multiple interfaces including CoseSDK, CanisterCaller, and HttpFeatures to provide a comprehensive
-//! set of security features.
+//! offering cryptographic operations, canister calls, and signed HTTPS requests.
 //!
 //! # Key Features
 //! - Cryptographic key derivation and management
@@ -13,17 +11,16 @@
 //! - CBOR-encoded RPC calls with signing
 //!
 //! # Security Considerations
-//! - All cryptographic operations are performed within the TEE
-//! - HTTPS-only communication enforced
+//! - Key operations can be delegated to the gateway inside the TEE
+//! - External requests use HTTPS by default
 //! - Message authentication for all signed requests
 //! - Timeouts and keep-alive settings configured for secure connections
 //!
 //! # Interfaces Implemented
 //! - [`CoseSDK`]: For COSE (CBOR Object Signing and Encryption) operations
 //! - [`CanisterCaller`]: For secure ICP canisters communication
-//! - [`HttpFeatures`]: For secure HTTP operations with signing capabilities
 
-use arc_swap::ArcSwap;
+use arc_swap::ArcSwapOption;
 use candid::{encode_args, utils::ArgumentEncoder, CandidType, Decode, Principal};
 use cbor2::from_slice;
 use ic_agent::{Agent, Identity};
@@ -45,7 +42,10 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    http::{canister_rpc, http_rpc, post_cbor, HttpRPCError, RPCRequest, CONTENT_TYPE_CBOR},
+    http::{
+        canister_rpc, http_rpc, post_cbor, post_cbor_response, HttpRPCError, RPCRequest,
+        CONTENT_TYPE_CBOR,
+    },
     BoxError,
 };
 
@@ -66,7 +66,7 @@ pub struct Client {
     endpoint_canister_update: String,
     identity: Option<Arc<dyn Identity>>,
     agent: Option<Agent>,
-    tee: ArcSwap<Option<TEEAppInformation>>,
+    tee: ArcSwapOption<TEEAppInformation>,
 }
 
 /// Builder for constructing a Client instance with customizable parameters
@@ -152,10 +152,9 @@ impl ClientBuilder {
                 headers.insert(http::header::CONTENT_TYPE, ct.clone());
                 headers.insert(http::header::ACCEPT, ct);
                 if !self.basic_token.is_empty() {
-                    headers.insert(
-                        http::header::AUTHORIZATION,
-                        self.basic_token.parse().unwrap(),
-                    );
+                    let mut token = self.basic_token.parse::<http::HeaderValue>().unwrap();
+                    token.set_sensitive(true);
+                    headers.insert(http::header::AUTHORIZATION, token);
                 }
 
                 headers
@@ -178,19 +177,20 @@ impl ClientBuilder {
                 .expect("reqwest client should build")
         });
 
+        let tee_host = self.tee_host.trim_end_matches('/');
         Client {
             http,
             outer_http,
             cose_canister: self.cose_canister,
-            endpoint_info: format!("{}/information", self.tee_host),
-            endpoint_keys: format!("{}/keys", self.tee_host),
-            endpoint_identity: format!("{}/identity", self.tee_host),
-            endpoint_attestation: format!("{}/attestation", self.tee_host),
-            endpoint_canister_query: format!("{}/canister/query", self.tee_host),
-            endpoint_canister_update: format!("{}/canister/update", self.tee_host),
+            endpoint_info: format!("{tee_host}/information"),
+            endpoint_keys: format!("{tee_host}/keys"),
+            endpoint_identity: format!("{tee_host}/identity"),
+            endpoint_attestation: format!("{tee_host}/attestation"),
+            endpoint_canister_query: format!("{tee_host}/canister/query"),
+            endpoint_canister_update: format!("{tee_host}/canister/update"),
             identity: self.identity,
             agent: self.agent,
-            tee: ArcSwap::new(Arc::new(None)),
+            tee: ArcSwapOption::empty(),
         }
     }
 }
@@ -200,27 +200,27 @@ impl Client {
         &self,
         cancel_token: CancellationToken,
     ) -> Result<TEEAppInformation, BoxError> {
-        loop {
-            if let Ok(tee_info) = self.http.get(&self.endpoint_info).send().await {
-                let tee_info = tee_info.bytes().await?;
-                let tee_info: TEEAppInformation = from_slice(&tee_info[..])?;
-                self.tee.store(Arc::new(Some(tee_info.clone())));
-                return Ok(tee_info);
-            }
+        tokio::select! {
+            biased;
+            _ = cancel_token.cancelled() => Err("connect_tee cancelled".into()),
+            result = async {
+                loop {
+                    if let Ok(response) = self.http.get(&self.endpoint_info).send().await {
+                        let body = response.error_for_status()?.bytes().await?;
+                        let tee_info: TEEAppInformation = from_slice(&body)?;
+                        self.tee.store(Some(Arc::new(tee_info.clone())));
+                        return Ok(tee_info);
+                    }
 
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    return Err("connect_tee cancelled".into());
-                },
-                _ = tokio::time::sleep(Duration::from_secs(2)) => {},
-            }
-
-            log::info!("connecting TEE service again");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    log::info!("connecting TEE service again");
+                }
+            } => result,
         }
     }
 
     pub fn tee_info(&self) -> Option<TEEAppInformation> {
-        self.tee.load().as_ref().clone()
+        self.tee.load().as_deref().cloned()
     }
 
     pub fn get_principal(&self) -> Principal {
@@ -468,7 +468,7 @@ impl Client {
         Ok(se)
     }
 
-    /// Signs an TEE attestation request
+    /// Signs a TEE attestation request.
     ///
     /// # Arguments
     /// * `req` - Attestation request containing necessary parameters
@@ -479,11 +479,17 @@ impl Client {
         &self,
         req: AttestationRequest,
     ) -> Result<TEEAttestation, BoxError> {
-        let res: TEEAttestation = http_rpc(
+        let params = to_cbor_bytes(&req);
+        let request = RPCRequest {
+            method: "sign_attestation",
+            params: &params,
+        };
+        let res = post_cbor_response(
             &self.http,
             &self.endpoint_attestation,
-            "sign_attestation",
-            &(req,),
+            request.method,
+            None,
+            to_cbor_bytes(&request),
         )
         .await?;
         Ok(res)
@@ -506,9 +512,7 @@ impl Client {
         headers: Option<http::HeaderMap>,
         body: Option<Vec<u8>>, // default is empty
     ) -> Result<reqwest::Response, BoxError> {
-        if !url.starts_with("https://") {
-            return Err("Invalid URL, must start with https://".into());
-        }
+        require_https(url)?;
         let mut req = self.outer_http.request(method, url);
         if let Some(headers) = headers {
             req = req.headers(headers);
@@ -557,6 +561,7 @@ impl Client {
     where
         T: DeserializeOwned,
     {
+        require_https(endpoint)?;
         let params = to_cbor_bytes(&params);
         let req = RPCRequest {
             method,
@@ -576,11 +581,18 @@ impl Client {
     }
 }
 
+fn require_https(url: &str) -> Result<(), BoxError> {
+    if !url.starts_with("https://") {
+        return Err("Invalid URL, must start with https://".into());
+    }
+    Ok(())
+}
+
 fn path_bytes(derivation_path: Vec<Vec<u8>>) -> Vec<ByteBuf> {
     derivation_path.into_iter().map(ByteBuf::from).collect()
 }
 
-/// Implements the `CoseSDK` trait for TEEClient to enable IC-COSE canister API calls
+/// Implements the `CoseSDK` trait for `Client` to enable IC-COSE canister API calls.
 ///
 /// This implementation provides the necessary interface to interact with the
 /// [IC-COSE](https://github.com/ldclabs/ic-cose) canister, allowing cryptographic

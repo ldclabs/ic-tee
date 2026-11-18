@@ -1,4 +1,7 @@
-use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
+use base64::{
+    prelude::{BASE64_STANDARD_NO_PAD, BASE64_URL_SAFE_NO_PAD},
+    Engine,
+};
 use candid::{pretty::candid::value::pp_value, CandidType, IDLValue, Principal};
 use cbor2::from_slice;
 use clap::{Parser, Subcommand};
@@ -13,7 +16,7 @@ use ic_cose::{
     vetkeys::DerivedPublicKey,
 };
 use ic_cose_types::{
-    cose::{cose_aes256_key, encrypt0::cose_encrypt0},
+    cose::cose_aes256_key,
     types::{
         setting::{CreateSettingInput, UpdateSettingPayloadInput},
         SettingPath,
@@ -21,11 +24,11 @@ use ic_cose_types::{
     BoxError,
 };
 use ic_tee_agent::setting::{
-    decrypt_dek, decrypt_payload, vetkey_decrypt_payload, vetkey_encrypt, vetkey_encrypt_payload,
-    TLSPayload,
+    decrypt_dek, decrypt_payload, encrypt_payload, vetkey_decrypt_payload, vetkey_encrypt,
+    vetkey_encrypt_payload, TLSPayload,
 };
 use ic_tee_cdk::{canister_user_key, TEEAttestation};
-use ic_tee_nitro_attestation::{parse, parse_and_verify};
+use ic_tee_nitro_attestation::parse_and_verify;
 use pkcs8::{
     der::{
         asn1::{ObjectIdentifier, OctetString, OctetStringRef},
@@ -81,8 +84,9 @@ pub enum Commands {
         sub_seed: Option<String>,
     },
     RandBytes {
-        #[arg(long, default_value = "32")]
-        len: usize,
+        /// Number of bytes to generate, up to 1024.
+        #[arg(long, default_value = "32", value_parser = clap::value_parser!(u16).range(0..=1024))]
+        len: u16,
 
         #[arg(long, default_value = "hex")]
         format: String,
@@ -90,11 +94,11 @@ pub enum Commands {
     /// verify a TEE attestation document
     TeeVerify {
         /// TEE kind to verify
-        #[arg(long, default_value = "NITRO")]
+        #[arg(long, default_value = "NITRO", value_parser = ["NITRO"])]
         kind: String,
 
         /// TEE attestation document, hex or base64 (with "b64:" prefix) encoded
-        #[arg(long)]
+        #[arg(long, conflicts_with = "url", required_unless_present = "url")]
         doc: Option<String>,
 
         /// TEE attestation document url
@@ -112,7 +116,7 @@ pub enum Commands {
         /// The setting subject
         #[arg(long)]
         subject: Option<String>,
-        /// The setting subject
+        /// Read a user-owned setting.
         #[arg(long)]
         user_owned: bool,
         /// The setting version
@@ -122,7 +126,7 @@ pub enum Commands {
         #[arg(long, default_value = "false")]
         vetkey: bool,
     },
-    /// save a identity to the COSE canister
+    /// create or update an encrypted file in the COSE canister
     SettingUpsertFile {
         /// The setting's namespace
         #[arg(long)]
@@ -224,7 +228,7 @@ async fn main() -> Result<(), BoxError> {
 
         Some(Commands::RandBytes { len, format }) => {
             let mut rng = rand::rng();
-            let mut bytes = vec![0u8; (*len).min(1024)];
+            let mut bytes = vec![0u8; usize::from(*len)];
             rng.fill_bytes(&mut bytes);
             match format.as_str() {
                 "hex" => {
@@ -252,24 +256,17 @@ async fn main() -> Result<(), BoxError> {
                         .bytes()
                         .await?;
                     let res: TEEAttestation = from_slice(&res[..])?;
+                    if &res.kind != kind {
+                        return Err(format!("expected {kind} attestation, got {}", res.kind).into());
+                    }
                     res.attestation.into_vec()
                 }
-                _ => Err("doc or url is required".to_string())?,
+                _ => return Err("exactly one of --doc and --url is required".into()),
             };
-            let mut error: Option<String> = None;
-            let doc = match parse_and_verify(&doc) {
-                Ok(doc) => doc,
-                Err(err) => {
-                    error = Some(err);
-                    let (_, doc) = parse(&doc)?;
-                    doc
-                }
-            };
+            let doc = parse_and_verify(&doc)
+                .map_err(|err| format!("{kind} attestation verification failed: {err}"))?;
             pretty_println(&doc)?;
-            match error {
-                Some(err) => println!("{} attestation verification failed: {}", kind, err),
-                None => println!("{} attestation verification success", kind),
-            }
+            println!("{kind} attestation verification success");
         }
 
         Some(Commands::SettingGet {
@@ -281,12 +278,14 @@ async fn main() -> Result<(), BoxError> {
             vetkey,
         }) => {
             let canister = Principal::from_text(&cli.canister)?;
+            let subject = subject.as_ref().map(Principal::from_text).transpose()?;
+            let subject = subject.unwrap_or(identity.sender()?);
             let agent = Arc::new(build_agent(host, identity).await?);
-            let cose = Client::new(agent.clone(), canister);
+            let cose = Client::new(agent, canister);
             let path = SettingPath {
                 ns: ns.clone(),
                 user_owned: *user_owned,
-                subject: subject.as_ref().map(Principal::from_text).transpose()?,
+                subject: Some(subject),
                 key: ByteBuf::from(key.as_bytes()),
                 version: *version,
             };
@@ -297,9 +296,9 @@ async fn main() -> Result<(), BoxError> {
                 let payload = decrypt_payload(&res, &secret, &[])?;
                 pretty_println(&res)?;
                 print_payload(&payload);
-            } else if *vetkey && res.payload.is_some() {
+            } else if let Some(payload) = res.payload.as_ref().filter(|_| *vetkey) {
                 let (vk, _dpk) = cose.vetkey(&path).await?;
-                let payload = vetkey_decrypt_payload(&vk, &res.payload.unwrap())?;
+                let payload = vetkey_decrypt_payload(&vk, payload)?;
                 print_payload(&payload);
             } else {
                 pretty_println(&res)?;
@@ -319,7 +318,7 @@ async fn main() -> Result<(), BoxError> {
             let subject = Principal::from_text(subject)?;
             let content = std::fs::read(file)?;
             let agent = Arc::new(build_agent(host, identity).await?);
-            let cose = Client::new(agent.clone(), canister);
+            let cose = Client::new(agent, canister);
             let path = SettingPath {
                 ns: ns.clone(),
                 user_owned: false,
@@ -337,12 +336,9 @@ async fn main() -> Result<(), BoxError> {
                 } else {
                     let secret = cose.get_cose_encrypted_key(&path).await?;
                     let dek: [u8; 32] = rand_bytes();
-                    let nonce: [u8; 12] = rand_bytes();
-                    let payload = cose_encrypt0(&content, &dek, &[], &nonce, None)?;
+                    let payload = encrypt_payload(&content, &dek, &[])?;
                     let dek = cose_aes256_key(dek, path.key.to_vec());
-                    let dek = dek.to_vec().unwrap();
-                    let nonce: [u8; 12] = rand_bytes();
-                    let dek = cose_encrypt0(&dek, &secret, &[], &nonce, None)?;
+                    let dek = encrypt_payload(&dek.to_vec()?, &secret, &[])?;
                     (Some(payload.into()), Some(dek.into()))
                 };
 
@@ -376,8 +372,7 @@ async fn main() -> Result<(), BoxError> {
                 let res = cose.setting_get(&path).await?;
                 let secret = cose.get_cose_encrypted_key(&path).await?;
                 let secret = decrypt_dek(&res, &secret, &[])?;
-                let nonce: [u8; 12] = rand_bytes();
-                let payload = cose_encrypt0(&content, &secret, &[], &nonce, None)?;
+                let payload = encrypt_payload(&content, &secret, &[])?;
                 let res = cose
                     .setting_update_payload(
                         &path,
@@ -403,11 +398,11 @@ async fn main() -> Result<(), BoxError> {
             let key_data = std::fs::read_to_string(key_file)?;
             let cert_data = std::fs::read_to_string(cert_file)?;
             let tls = TLSPayload {
-                crt: cert_data.as_bytes().to_vec().into(),
-                key: key_data.as_bytes().to_vec().into(),
+                crt: cert_data.into_bytes().into(),
+                key: key_data.into_bytes().into(),
             };
             let agent = Arc::new(build_agent(host, identity).await?);
-            let cose = Client::new(agent.clone(), canister);
+            let cose = Client::new(agent, canister);
             let path = SettingPath {
                 ns: ns.clone(),
                 user_owned: false,
@@ -476,7 +471,12 @@ fn decode_hex(s: &str) -> Result<Vec<u8>, BoxError> {
 // decodes an attestation document in hex or "b64:" prefixed base64
 fn decode_doc(s: &str) -> Result<Vec<u8>, BoxError> {
     match s.trim().strip_prefix("b64:") {
-        Some(b64) => Ok(BASE64_URL_SAFE_NO_PAD.decode(b64.trim_end_matches('='))?),
+        Some(b64) => {
+            let b64 = b64.trim_end_matches('=');
+            Ok(BASE64_URL_SAFE_NO_PAD
+                .decode(b64)
+                .or_else(|_| BASE64_STANDARD_NO_PAD.decode(b64))?)
+        }
         None => decode_hex(s),
     }
 }

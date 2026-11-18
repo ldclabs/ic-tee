@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 # setting an address for loopback
 ifconfig lo 127.0.0.1
@@ -6,9 +7,6 @@ ifconfig
 
 # Debian: failed to initialize nft: Protocol not supported
 update-alternatives --set iptables /usr/sbin/iptables-legacy
-# update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
-# update-alternatives --set arptables /usr/sbin/arptables-legacy
-# update-alternatives --set ebtables /usr/sbin/ebtables-legacy
 
 # adding a default route
 ip route add default via 127.0.0.1 dev lo
@@ -25,6 +23,4 @@ iptables -L -t nat -v -n
 
 # your custom setup goes here
 
-# starting supervisord
-cat /etc/supervisord.conf
-/app/supervisord
+exec /app/supervisord

@@ -21,7 +21,6 @@ pub struct Attestation {
     pub module_id: String,
 
     /// The digest function used for calculating the register values
-    /// Can be: "SHA256" | "SHA512"
     pub digest: Digest,
 
     /// UTC time when document was created expressed as milliseconds since Unix Epoch
@@ -30,7 +29,7 @@ pub struct Attestation {
     /// Map of all locked PCRs at the moment the attestation document was generated
     pub pcrs: BTreeMap<usize, ByteBufB64>,
 
-    /// The infrastucture certificate used to sign the document, DER encoded
+    /// The infrastructure certificate used to sign the document, DER encoded
     pub certificate: ByteBufB64,
     /// Issuing CA bundle for infrastructure certificate
     pub cabundle: Vec<ByteBufB64>,

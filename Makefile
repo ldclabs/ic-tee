@@ -1,22 +1,22 @@
-BUILD_ENV := rust
+CARGO_TARGET_DIR ?= target
 
-.PHONY: build-wasm build-did
+.PHONY: lint fix test build-wasm build-did
 
 lint:
-	@cargo fmt
-	@cargo clippy --all-targets --all-features
+	@cargo fmt --all -- --check
+	@cargo clippy --workspace --all-targets --all-features --locked
 
 fix:
-	@cargo clippy --fix --workspace --tests
+	@cargo clippy --fix --workspace --tests --locked
 
 test:
-	@AWS_LC_SYS_NO_ASM=1 cargo test --workspace --all-features -- --nocapture
+	@cargo test --workspace --all-features --locked
 
-# cargo install ic-wasm
 build-wasm:
-	@RUSTFLAGS='--cfg=getrandom_backend="custom"' cargo build --release --locked --target wasm32-unknown-unknown --package ic_tee_identity_canister
+	@cargo build --release --locked --target-dir "$(CARGO_TARGET_DIR)" --target wasm32-unknown-unknown --package ic_tee_identity_canister
 
 # cargo install candid-extractor
-build-did:
-	candid-extractor target/wasm32-unknown-unknown/release/ic_tee_identity_canister.wasm > src/ic_tee_identity_canister/ic_tee_identity_canister.did
+build-did: build-wasm
+	@did=$$(candid-extractor "$(CARGO_TARGET_DIR)/wasm32-unknown-unknown/release/ic_tee_identity_canister.wasm") && \
+		printf '%s\n' "$$did" > src/ic_tee_identity_canister/ic_tee_identity_canister.did
 	dfx generate

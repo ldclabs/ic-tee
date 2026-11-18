@@ -30,5 +30,3 @@ reqwest = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 log = { workspace = true }
-
-[dev-dependencies]

@@ -13,6 +13,7 @@ use ic_cose::client::CoseSDK;
 use ic_cose_types::{format_error, types::SignDelegationInput, BoxError, CanisterCaller};
 use serde_bytes::ByteBuf;
 use std::sync::Arc;
+use url::Url;
 
 #[derive(Clone)]
 pub struct TEEAgent {
@@ -28,22 +29,34 @@ impl TEEAgent {
         identity_canister: Principal,
         cose_canister: Principal,
     ) -> Result<Self, String> {
+        let url: Url = host
+            .parse()
+            .map_err(|err| format!("invalid IC host: {err}"))?;
+        let is_local = url.scheme() == "http";
+        if !is_local && url.scheme() != "https" {
+            return Err("IC host must use HTTP or HTTPS".to_string());
+        }
         let identity = Arc::new(AtomicIdentity::default());
         let agent = Agent::builder()
-            .with_url(host)
+            .with_url(url.as_str())
             .with_arc_identity(identity.clone())
             .with_verify_query_signatures(false);
 
-        let agent = if host.starts_with("https://") {
-            agent
-                .with_background_dynamic_routing()
-                .build()
-                .map_err(format_error)?
+        let agent = if !is_local
+            && url.domain().is_some()
+            && url.port().is_none()
+            && url.path() == "/"
+            && url.query().is_none()
+            && url.fragment().is_none()
+        {
+            agent.with_background_dynamic_routing()
         } else {
-            agent.build().map_err(format_error)?
-        };
+            agent
+        }
+        .build()
+        .map_err(format_error)?;
 
-        if host.starts_with("http://") {
+        if is_local {
             // ignore error
             let _ = agent.fetch_root_key().await;
         }
@@ -105,10 +118,11 @@ impl TEEAgent {
             (user_key, res?)
         };
         let expiration = delegation.delegation.expiration;
-        let id = DelegatedIdentity::new(
+        let id = DelegatedIdentity::new_with_root_key(
             user_key,
             Box::new(session),
             vec![signed_delegation_from(delegation)],
+            &self.agent.read_root_key(),
         )
         .map_err(format_error)?;
 
@@ -124,18 +138,18 @@ impl TEEAgent {
         name: String,
         session: BasicIdentity,
     ) -> Result<u64, String> {
+        let name = name.to_ascii_lowercase();
         let mut msg = vec![];
-        to_writer(&(&ns, &name, &self.identity.sender().unwrap()), &mut msg)
-            .expect("failed to encode Delegations data");
-        let sig = session.sign_arbitrary(&msg).unwrap();
-        let pubkey = ByteBuf::from(session.public_key().unwrap());
+        to_writer(&(&ns, &name, &self.identity.sender()?), &mut msg).map_err(format_error)?;
+        let sig = session.sign_arbitrary(&msg)?;
+        let pubkey = ByteBuf::from(session.public_key().ok_or("missing session public key")?);
 
         let res = self
             .namespace_sign_delegation(&SignDelegationInput {
                 ns,
                 name,
                 pubkey: pubkey.clone(),
-                sig: sig.signature.unwrap().into(),
+                sig: sig.signature.ok_or("missing session signature")?.into(),
             })
             .await?;
 
@@ -143,15 +157,17 @@ impl TEEAgent {
         let delegation = self
             .get_delegation(&res.seed.0.into(), &pubkey, res.expiration)
             .await?;
-        let id = DelegatedIdentity::new(
+        let expiration = delegation.delegation.expiration;
+        let id = DelegatedIdentity::new_with_root_key(
             user_key,
             Box::new(session),
             vec![signed_delegation_from(delegation)],
+            &self.agent.read_root_key(),
         )
         .map_err(format_error)?;
 
         self.identity.set(Box::new(id));
-        Ok(res.expiration)
+        Ok(expiration)
     }
 
     pub async fn update_call_raw(

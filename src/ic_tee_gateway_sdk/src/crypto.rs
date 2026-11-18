@@ -2,7 +2,7 @@ use ic_cose::rand_bytes;
 use ic_cose_types::{
     cose::kdf::derive_a256gcm_key,
     cose::{
-        ecdh::ecdh_x25519,
+        ecdh::try_ecdh_x25519,
         encrypt0::{cose_decrypt0, cose_encrypt0},
     },
     types::{ECDHInput, ECDHOutput},
@@ -31,21 +31,33 @@ pub fn a256gcm_key(root_secret: &[u8], derivation_path: Vec<Vec<u8>>) -> [u8; 32
 /// 2. Encrypts the derived key using COSE_Encrypt0 with the shared secret
 ///
 /// Returns the encrypted key and the ephemeral public key used in the exchange.
+///
+/// # Panics
+///
+/// Panics if the peer key is invalid. Use [`try_a256gcm_ecdh_key`] for untrusted input.
 pub fn a256gcm_ecdh_key(
     root_secret: &[u8],
     derivation_path: Vec<Vec<u8>>,
     ecdh: &ECDHInput,
 ) -> ECDHOutput<ByteBuf> {
-    let salt = derivation_path_to_context(&derivation_path);
-    let key = derive_a256gcm_key(root_secret, Some(&salt));
+    try_a256gcm_ecdh_key(root_secret, derivation_path, ecdh)
+        .expect("a256gcm_ecdh_key: key exchange failed")
+}
+
+/// Derives and encrypts a key, returning an error if the peer key is invalid.
+pub fn try_a256gcm_ecdh_key(
+    root_secret: &[u8],
+    derivation_path: Vec<Vec<u8>>,
+    ecdh: &ECDHInput,
+) -> Result<ECDHOutput<ByteBuf>, String> {
     let secret_key: [u8; 32] = rand_bytes();
-    let (shared_secret, public_key) = ecdh_x25519(secret_key, *ecdh.public_key);
-    let key = cose_encrypt0(&key, shared_secret.as_bytes(), &[], &ecdh.nonce, None)
-        .expect("a256gcm_key: failed to encrypt key");
-    ECDHOutput {
+    let (shared_secret, public_key) = try_ecdh_x25519(secret_key, *ecdh.public_key)?;
+    let key = a256gcm_key(root_secret, derivation_path);
+    let key = cose_encrypt0(&key, shared_secret.as_bytes(), &[], &ecdh.nonce, None)?;
+    Ok(ECDHOutput {
         payload: key.into(),
         public_key: public_key.to_bytes().into(),
-    }
+    })
 }
 
 /// Decrypts a COSE_Encrypt0 payload using ECDH (Elliptic Curve Diffie-Hellman).
@@ -59,7 +71,7 @@ pub fn a256gcm_ecdh_key(
 ///
 /// Returns the decrypted payload or an error if decryption fails.
 pub fn decrypt_ecdh(secret_key: [u8; 32], ecdh: &ECDHOutput<ByteBuf>) -> Result<Vec<u8>, BoxError> {
-    let (shared_secret, _) = ecdh_x25519(secret_key, *ecdh.public_key);
+    let (shared_secret, _) = try_ecdh_x25519(secret_key, *ecdh.public_key)?;
     let key = cose_decrypt0(&ecdh.payload, shared_secret.as_bytes(), &[])?;
     Ok(key)
 }
@@ -252,13 +264,12 @@ fn secp256k1_path(derivation_path: Vec<Vec<u8>>) -> ic_secp256k1::DerivationPath
     )
 }
 
-fn derivation_path_to_context(derivation_path: &[Vec<u8>]) -> Vec<u8> {
+fn derivation_path_to_context(derivation_path: &[Vec<u8>]) -> [u8; 32] {
     let mut hasher = sha3::Sha3_256::new();
     for path in derivation_path {
         hasher.update(path);
     }
-    let rt: [u8; 32] = hasher.finalize().into();
-    rt.into()
+    hasher.finalize().into()
 }
 
 #[cfg(test)]

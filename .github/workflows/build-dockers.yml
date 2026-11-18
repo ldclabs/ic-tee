@@ -6,22 +6,22 @@ on:
         description: 'Docker image tag'
         required: true
         type: string
-  # push:
-  #   tags:
-  #     - 'v*'
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ldclabs/ic_tee_nitro_gateway
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
     - uses: actions/checkout@v4
-    - uses: Swatinem/rust-cache@v2
     - name: Build the Docker image
+      env:
+        BUILD_TAG: ${{ inputs.build_tag }}
+        GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        docker login --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} ${{ env.REGISTRY }}
-        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}_enclave_amd64:${{ inputs.build_tag }}"
-        LATEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}_enclave_amd64:latest"
-        TAGS="-t ${IMAGE_TAG} -t ${LATEST_TAG}"
-        docker build -f nitro_enclave/amd64.Dockerfile $TAGS --push .
+        printf '%s\n' "$GHCR_TOKEN" | docker login --username "$GITHUB_ACTOR" --password-stdin "$REGISTRY"
+        IMAGE="$REGISTRY/${IMAGE_NAME}_enclave_amd64"
+        docker build -f nitro_enclave/amd64.Dockerfile -t "$IMAGE:$BUILD_TAG" -t "$IMAGE:latest" --push .

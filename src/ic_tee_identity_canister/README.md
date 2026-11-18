@@ -4,14 +4,24 @@
 ## Candid API
 
 ```shell
-get_delegation : (principal, blob, nat64) -> (Result) query;
+get_delegation : (blob, blob, nat64) -> (Result) query;
 get_state : () -> (Result_1) query;
 sign_in : (text, blob) -> (Result_2);
+whoami : () -> (principal) query;
 ```
 
 The complete Candid API definition can be found in the [ic_tee_identity_canister.did](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_identity_canister/ic_tee_identity_canister.did) file.
 
 ## Running locally
+
+On macOS, configure LLVM's tools for the Wasm build before running `dfx deploy` or `make build-wasm`.
+
+```bash
+llvm_bin="$(brew --prefix llvm)/bin"
+export CC_wasm32_unknown_unknown="$llvm_bin/clang"
+export AR_wasm32_unknown_unknown="$llvm_bin/llvm-ar"
+export RANLIB_wasm32_unknown_unknown="$llvm_bin/llvm-ranlib"
+```
 
 Deploy to local network:
 ```bash
@@ -34,4 +44,4 @@ dfx canister call ic_tee_identity_canister get_state '()'
 ## License
 Copyright © 2024-2025 [LDC Labs](https://github.com/ldclabs).
 
-`ldclabs/ic-tee` is licensed under the MIT License. See [LICENSE](../../LICENSE-MIT) for the full license text.
+This project is dual-licensed under the [MIT License](../../LICENSE-MIT) and [Apache License, Version 2.0](../../LICENSE-APACHE). You may use either license.

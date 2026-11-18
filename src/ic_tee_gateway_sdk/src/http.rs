@@ -195,6 +195,21 @@ pub(crate) async fn post_cbor(
     headers: Option<http::HeaderMap>,
     body: Vec<u8>,
 ) -> Result<ByteBufB64, HttpRPCError> {
+    let res: RPCResponse = post_cbor_response(client, endpoint, path, headers, body).await?;
+    res.map_err(|error| HttpRPCError::ResultError {
+        endpoint: endpoint.to_string(),
+        path: path.to_string(),
+        error,
+    })
+}
+
+pub(crate) async fn post_cbor_response<T: DeserializeOwned>(
+    client: &Client,
+    endpoint: &str,
+    path: &str,
+    headers: Option<http::HeaderMap>,
+    body: Vec<u8>,
+) -> Result<T, HttpRPCError> {
     let request_error = |error: String| HttpRPCError::RequestError {
         endpoint: endpoint.to_string(),
         path: path.to_string(),
@@ -231,6 +246,5 @@ pub(crate) async fn post_cbor(
         .bytes()
         .await
         .map_err(|err| result_error(err.to_string()))?;
-    let res: RPCResponse = from_slice(&data[..]).map_err(|err| result_error(err.to_string()))?;
-    res.map_err(result_error)
+    from_slice(&data).map_err(|err| result_error(err.to_string()))
 }

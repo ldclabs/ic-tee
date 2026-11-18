@@ -1,0 +1,7 @@
+.cargo
+.dfx
+.env
+.git
+debug
+target
+**/.DS_Store

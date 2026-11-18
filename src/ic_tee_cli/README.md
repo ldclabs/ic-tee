@@ -14,7 +14,9 @@ ic_tee_cli --help
 ic_tee_cli tee-verify --url https://tee-demo.panda.fans/.well-known/attestation
 ```
 
+`tee-verify` checks the AWS signature and certificate chain at the document's timestamp. For live attestation, check the timestamp and PCRs against your deployment's freshness policy and expected image.
+
 ## License
 Copyright © 2024-2025 [LDC Labs](https://github.com/ldclabs).
 
-`ldclabs/ic-tee` is licensed under the MIT License. See [LICENSE](../../LICENSE-MIT) for the full license text.
+This project is dual-licensed under the [MIT License](../../LICENSE-MIT) and [Apache License, Version 2.0](../../LICENSE-APACHE). You may use either license.

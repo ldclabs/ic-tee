@@ -12,8 +12,7 @@ use crate::store;
 const ATTESTATION_EXPIRES_IN_MS: u64 = 1000 * 60 * 5; // 5 minute
 const NANOS_PER_MS: u64 = 1_000_000;
 
-/// Maximum allowed time drift in milliseconds for delegation verification.
-/// This prevents replay attacks while allowing for reasonable clock differences.
+/// Maximum clock difference allowed when checking an attestation timestamp.
 const PERMITTED_DRIFT_MS: u64 = 60 * 1000;
 
 #[ic_cdk::query]
@@ -37,7 +36,11 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
     let (cs1, attestation) = parse(attestation.as_slice())?;
 
     let now_ms = ic_cdk::api::time() / NANOS_PER_MS;
-    if now_ms > attestation.timestamp + ATTESTATION_EXPIRES_IN_MS + PERMITTED_DRIFT_MS {
+    if attestation.timestamp.saturating_sub(now_ms) > PERMITTED_DRIFT_MS {
+        return Err("attestation timestamp is in the future".to_string());
+    }
+    if now_ms.saturating_sub(attestation.timestamp) > ATTESTATION_EXPIRES_IN_MS + PERMITTED_DRIFT_MS
+    {
         return Err("attestation expired".to_string());
     }
     let pcr0 = attestation.pcrs.get(&0).ok_or("missing PCR0")?;
@@ -79,14 +82,20 @@ fn sign_in(kind: String, attestation: ByteBuf) -> Result<SignInResponse, String>
         sub_seed,
     );
 
-    let session_expires_in_ms = store::state::with_mut(|state| {
-        state.sign_in_count = state.sign_in_count.saturating_add(1);
-        state.session_expires_in_ms
-    });
-    let expiration = (now_ms + session_expires_in_ms) * NANOS_PER_MS;
+    let session_expires_in_ms = store::state::with(|state| state.session_expires_in_ms);
+    if session_expires_in_ms == 0 {
+        return Err("session lifetime must be positive".to_string());
+    }
+    let expiration = now_ms
+        .checked_add(session_expires_in_ms)
+        .and_then(|expiration_ms| expiration_ms.checked_mul(NANOS_PER_MS))
+        .ok_or("invalid session expiration")?;
 
     let delegation_hash = delegation_signature_msg(pubkey.as_slice(), expiration, None);
     store::state::add_signature(user_key.seed.as_slice(), delegation_hash.as_slice());
+    store::state::with_mut(|state| {
+        state.sign_in_count = state.sign_in_count.saturating_add(1);
+    });
 
     Ok(SignInResponse {
         expiration,

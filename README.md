@@ -15,6 +15,7 @@ Relation project:
 | [ic_tee_cdk](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_cdk)                             | A Canister Development Kit to make Trusted Execution Environments (TEEs) work with the Internet Computer. |
 | [ic_tee_cli](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_cli)                             | A command-line tool implemented in Rust for the IC-TEE.                                                   |
 | [ic_tee_daemon](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_daemon)                       | A daemon running in enclave.                                                                              |
+| [ic_tee_gateway_sdk](./src/ic_tee_gateway_sdk)                                                      | Rust SDK for the IC TEE Gateway.                                                                          |
 | [ic_tee_host_daemon](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_host_daemon)             | A daemon running on the host machine of TEEs.                                                             |
 | [ic_tee_identity_canister](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_identity_canister) | An on-chain authentication service for Trusted Execution Environments (TEEs) on the Internet Computer.    |
 | [ic_tee_nitro_attestation](https://github.com/ldclabs/ic-tee/tree/main/src/ic_tee_nitro_attestation) | A Rust library to process AWS Nitro enclave attestation.                                                  |
@@ -23,4 +24,4 @@ Relation project:
 ## License
 Copyright © 2024-2025 [LDC Labs](https://github.com/ldclabs).
 
-`ldclabs/ic-tee` is licensed under the MIT License. See [LICENSE](./LICENSE-MIT) for the full license text.
+This project is dual-licensed under the [MIT License](./LICENSE-MIT) and [Apache License, Version 2.0](./LICENSE-APACHE). You may use either license.
