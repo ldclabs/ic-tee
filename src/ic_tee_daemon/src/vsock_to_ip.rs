@@ -14,9 +14,9 @@ pub async fn serve(listen_addr: VsockAddr, server_addr: &str) -> Result<()> {
 
     loop {
         match listener.accept().await {
-            Ok((inbound, _)) => {
+            Ok((inbound, inbound_addr)) => {
                 tokio::spawn(async move {
-                    if let Err(err) = transfer(inbound, addr).await {
+                    if let Err(err) = transfer(inbound, inbound_addr, addr).await {
                         log::error!(target: "vsock_to_ip", "error in transfer: {:?}", err)
                     };
                 });
@@ -29,11 +29,11 @@ pub async fn serve(listen_addr: VsockAddr, server_addr: &str) -> Result<()> {
     }
 }
 
-async fn transfer(mut inbound: VsockStream, server_addr: SocketAddr) -> Result<()> {
-    let inbound_addr = inbound
-        .peer_addr()
-        .context("could not fetch inbound addr")?;
-
+async fn transfer(
+    mut inbound: VsockStream,
+    inbound_addr: VsockAddr,
+    server_addr: SocketAddr,
+) -> Result<()> {
     log::info!(target: "vsock_to_ip", "proxying to {:?}", server_addr);
 
     let mut outbound = TcpStream::connect(server_addr)

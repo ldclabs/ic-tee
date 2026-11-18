@@ -20,8 +20,8 @@ use ic_cose_types::{
 use ic_tee_agent::{
     agent::TEEAgent,
     http::{
-        Content, HEADER_IC_TEE_ID, HEADER_IC_TEE_INSTANCE, HEADER_X_FORWARDED_FOR,
-        HEADER_X_FORWARDED_HOST, HEADER_X_FORWARDED_PROTO,
+        Content, CONTENT_TYPE_CBOR, CONTENT_TYPE_JSON, HEADER_IC_TEE_ID, HEADER_IC_TEE_INSTANCE,
+        HEADER_X_FORWARDED_FOR, HEADER_X_FORWARDED_HOST, HEADER_X_FORWARDED_PROTO,
     },
     RPCRequest, RPCResponse,
 };
@@ -132,10 +132,11 @@ pub async fn get_information(State(app): State<AppState>, req: Request) -> impl 
     let mut info = app.info.as_ref().clone();
     info.caller = verify_caller(req.headers(), info.id).unwrap_or(ANONYMOUS_PRINCIPAL);
 
-    let response = match Content::from(req.headers()) {
-        Content::CBOR(_, _) => Content::CBOR(info, None).into_response(),
-        _ => Content::JSON(info, None).into_response(),
-    };
+    let response =
+        match Content::from_accept(req.headers(), &[CONTENT_TYPE_CBOR, CONTENT_TYPE_JSON]) {
+            Content::CBOR(_, _) => Content::CBOR(info, None).into_response(),
+            _ => Content::JSON(info, None).into_response(),
+        };
     ([(header::CACHE_CONTROL, "no-store")], response)
 }
 
@@ -345,7 +346,7 @@ pub async fn proxy(
         .map_err(|err| Content::Text(err, Some(StatusCode::UNAUTHORIZED)))?;
 
     let headers = req.headers_mut();
-    remove_connection_headers(headers);
+    prepare_upstream_connection_headers(headers);
     headers.remove(&header::FORWARDED);
     headers.remove(&HEADER_X_FORWARDED_FOR);
     headers.remove(&HEADER_X_FORWARDED_HOST);
@@ -389,6 +390,21 @@ pub async fn proxy(
             err.to_string(),
             Some(StatusCode::BAD_GATEWAY),
         )),
+    }
+}
+
+fn prepare_upstream_connection_headers(headers: &mut HeaderMap) {
+    let accepts_trailers = headers
+        .get_all(header::TE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|token| token.trim().eq_ignore_ascii_case("trailers"));
+    remove_connection_headers(headers);
+
+    if accepts_trailers {
+        headers.insert(header::TE, HeaderValue::from_static("trailers"));
+        headers.insert(header::CONNECTION, HeaderValue::from_static("te"));
     }
 }
 
@@ -548,12 +564,28 @@ mod tests {
         cose::ecdh,
         types::{state::StateInfo, ECDHOutput},
     };
-    use ic_tee_agent::http::CONTENT_TYPE_CBOR;
     use ic_tee_cdk::CanisterResponse;
     use ic_tee_gateway_sdk::client::ClientBuilder;
 
     static TEE_HOST: &str = "http://127.0.0.1:8080";
     static COSE_CANISTER: &str = "53cyg-yyaaa-aaaap-ahpua-cai";
+
+    #[test]
+    fn proxy_renegotiates_trailers_on_the_upstream_connection() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONNECTION,
+            HeaderValue::from_static("TE, keep-alive"),
+        );
+        headers.insert(header::TE, HeaderValue::from_static("gzip, Trailers"));
+        headers.insert("keep-alive", HeaderValue::from_static("timeout=5"));
+
+        prepare_upstream_connection_headers(&mut headers);
+
+        assert_eq!(headers[header::TE], "trailers");
+        assert_eq!(headers[header::CONNECTION], "te");
+        assert!(!headers.contains_key("keep-alive"));
+    }
 
     #[tokio::test]
     async fn sdk_attestation_uses_the_gateway_wire_format() {

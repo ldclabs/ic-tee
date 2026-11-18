@@ -28,6 +28,13 @@ pub enum ContentWithSHA3<T> {
 
 impl Content<()> {
     pub fn from(headers: &HeaderMap<HeaderValue>) -> Self {
+        Self::from_accept(
+            headers,
+            &[CONTENT_TYPE_CBOR, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT],
+        )
+    }
+
+    pub fn from_accept(headers: &HeaderMap, supported: &[&str]) -> Self {
         let mut best = (0.0, 0);
         for media_type in headers
             .get_all(header::ACCEPT)
@@ -35,6 +42,7 @@ impl Content<()> {
             .filter_map(|value| value.to_str().ok())
             .flat_map(|value| value.split(','))
             .filter_map(|value| value.trim().parse::<mime::Mime>().ok())
+            .filter(|value| supported.contains(&value.essence_str()))
         {
             let preference = match media_type.essence_str() {
                 value if value == CONTENT_TYPE_CBOR => 3,
@@ -211,5 +219,19 @@ mod tests {
             HeaderValue::from_static("application/json;q=0.8"),
         );
         assert!(matches!(Content::from(&headers), Content::JSON(_, _)));
+    }
+
+    #[test]
+    fn accept_skips_types_the_handler_does_not_offer() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT,
+            HeaderValue::from_static("text/plain, application/cbor;q=0.5"),
+        );
+        assert!(matches!(Content::from(&headers), Content::Text(_, _)));
+        assert!(matches!(
+            Content::from_accept(&headers, &[CONTENT_TYPE_CBOR, CONTENT_TYPE_JSON]),
+            Content::CBOR(_, _)
+        ));
     }
 }
